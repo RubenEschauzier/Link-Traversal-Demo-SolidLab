@@ -5,6 +5,18 @@ import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import { Profile } from './src/pages/MyProfile.js';
 import QueryDebugger from './src/components/QueryDebugger.js';
 import { AuthProvider, useAuth } from './src/context/AuthContext.js';
+/**
+ * This demo still needs as system: Authentication via Solid Auth Client (or mocked implementation)
+ * This demo will show:
+ * My profile with some information of the logged-in user (check)
+ * A list of my friends with their names and locations
+ * A list of forums I like and the messages in these forums
+ * Click on these messages to see:
+ *  The authors of these messages and their information.
+ *  The comments under these messages
+ * A panel that shows atleast the query and for example the current logger output
+ * Optionally we include the traversal topology visualization as well if feasible due to LLMs
+ */
 // Create a small "UserStatus" component for the Navbar
 const UserStatus = () => {
     const { user, login, logout } = useAuth();

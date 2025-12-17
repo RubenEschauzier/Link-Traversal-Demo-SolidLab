@@ -1,14 +1,26 @@
-import { QueryEngine } from '@comunica/query-sparql-link-traversal-solid';
+import { QueryEngine } from '@rubeneschauzier/query-sparql-link-traversal-solid-limit-depth-2';
 class LinkTraversalEngine {
     engine;
     constructor() {
         this.engine = new QueryEngine();
     }
     async query(query, context) {
-        const bindingsStream = await this.engine.queryBindings(query, context);
-        return bindingsStream;
+        return await this.engine.queryBindings(query, context);
     }
 }
+// import type { BindingsStream } from "@comunica/types";
+// // @ts-ignore - Compiled Comunica engine
+// import { QueryEngine } from './../engines/custom-limit-depth-3-engine.js';
+// class LinkTraversalEngine {
+//   private engine: any;
+//   public constructor() {
+//     this.engine = new QueryEngine();
+//   }
+//   public async query(query: string, context: Record<string, any>): Promise<BindingsStream> {
+//     const bindingsStream = await this.engine.queryBindings(query, context);
+//     return bindingsStream;
+//   }
+// }
 const engineInstance = new LinkTraversalEngine();
 /**
  * STUB: Link Traversal Query Executor

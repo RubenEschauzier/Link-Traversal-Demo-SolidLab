@@ -29,9 +29,10 @@ interface Forum {
 
 // 3. Friend Interface
 interface Friend {
-  id: string;
-  name: string;
-  mutualFriends: number;
+  firstName: string;
+  lastName: string;
+  city: string;
+  friendCard: string;
 }
 
 // --- Props Interface ---
@@ -40,6 +41,22 @@ interface ProfileProps {
 }
 
 // --- SPARQL Query Constants ---
+const QUERY_MY_FRIENDS = `
+  PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+  PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+  PREFIX snvoc: <https://solidbench.linkeddatafragments.org/www.ldbc.eu/ldbc_socialnet/1.0/vocabulary/>
+  SELECT ?firstName ?lastName ?cityName ?friendProfile WHERE {
+    TEMPLATE:ME rdf:type snvoc:Person;
+      snvoc:knows ?friend.
+    ?friend snvoc:hasPerson ?friendProfile.
+    ?friendProfile rdf:type snvoc:Person;
+      snvoc:firstName ?firstName;
+      snvoc:lastName ?lastName;
+      snvoc:isLocatedIn ?city.
+    ?city foaf:name ?cityName.
+  }
+`;
+
 const QUERY_MY_INFO = `
   PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
   PREFIX foaf: <http://xmlns.com/foaf/0.1/>
@@ -86,6 +103,41 @@ const processProfileBinding = (binding: any, accumulatingValues: Record<string, 
     interests: accumulatingValues['interests']
   };
 }
+
+const processFriendBinding = (binding: any, accumulatingValues: Record<string, string[]>): Friend[] => {
+  if (!accumulatingValues['firstName']) {
+    accumulatingValues['firstName'] = [];
+  }
+  if (!accumulatingValues['firstName'].includes(binding.get('firstName').value)) {
+    accumulatingValues['firstName'].push(binding.get('firstName').value);
+  }
+  if (!accumulatingValues['lastName']) {
+    accumulatingValues['lastName'] = [];
+  }
+  if (!accumulatingValues['lastName'].includes(binding.get('lastName').value)) {
+    accumulatingValues['lastName'].push(binding.get('lastName').value);
+  }
+  if (!accumulatingValues['city']) {
+    accumulatingValues['city'] = [];
+  }
+  if (!accumulatingValues['city'].includes(binding.get('cityName').value)) {
+    accumulatingValues['city'].push(binding.get('cityName').value);
+  }
+  if (!accumulatingValues['friendCard']) {
+    accumulatingValues['friendCard'] = [];
+  }
+  if (!accumulatingValues['friendCard'].includes(binding.get('friendProfile').value)) {
+    accumulatingValues['friendCard'].push(binding.get('friendProfile').value);
+  }
+  
+  return accumulatingValues['firstName'].map((_, index) => ({
+    firstName: accumulatingValues['firstName']![index]!,
+    lastName: accumulatingValues['lastName']![index]!,
+    city: accumulatingValues['city']![index]!,
+    friendCard: accumulatingValues['friendCard']![index]!,
+  }));
+}
+
 export const Profile: React.FC<ProfileProps> = ({ setDebugQuery }) => {
   const { user, isAuthenticated } = useAuth();
   // State for the different data sections
@@ -131,15 +183,6 @@ export const Profile: React.FC<ProfileProps> = ({ setDebugQuery }) => {
         bs.on('end', resolve); // Resolve the promise when the stream ends
         bs.on('error', reject); // Reject if there's a stream error
       });
-      // const data = {
-      //   username: user.name,
-      //   bio: "This is a mock bio loaded from the decentralized web.",
-      //   joinDate: "2022-01-15",
-      //   avatarUrl: user.avatar || undefined
-      // }
-      // // Mocking the cast for the stub return value
-      // // If executeTraversalQuery returns an array, we take the first item
-      // setProfileData(Array.isArray(data) ? data[0] : data); 
     } catch (error) {
       console.error("Failed to load profile", error);
     } finally {
@@ -162,20 +205,37 @@ export const Profile: React.FC<ProfileProps> = ({ setDebugQuery }) => {
   //   }
   // };
 
-  // const loadFriends = async () => {
-  //   setIsLoading(true);
-  //   setActiveSection('friends');
-  //   setDebugQuery(QUERY_MY_FRIENDS);
+  const loadFriends = async () => {
+    setIsLoading(true);
+    setActiveSection('friends');
 
-  //   try {
-  //     const data = (await executeTraversalQuery(QUERY_MY_FRIENDS, {})) as Friend[];
-  //     setFriends(data);
-  //   } catch (error) {
-  //     console.error("Failed to load friends", error);
-  //   } finally {
-  //     setIsLoading(false);
-  //   }
-  // };
+    // Clear old data and ensure the UI shows a loading state
+    setProfileData(null);
+
+    const friendsQuery = QUERY_MY_FRIENDS.replaceAll('TEMPLATE:ME', `<${user.username}>`);
+    console.log(friendsQuery)
+    setDebugQuery(friendsQuery);
+
+    try {
+      const bs: BindingsStream = await executeTraversalQuery(friendsQuery, {});
+      const accumulatingValues: Record<string, string[]> = {};
+      bs.on('data', (binding) => {
+        console.log("BINDING!!!")
+        const profileData = processFriendBinding(binding, accumulatingValues);
+        console.log(profileData);
+        setFriends(profileData);
+        setIsLoading(false);
+      });
+      await new Promise<void>((resolve, reject) => {
+        bs.on('end', resolve); // Resolve the promise when the stream ends
+        bs.on('error', reject); // Reject if there's a stream error
+      });
+    } catch (error) {
+      console.error("Failed to load friends", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
 return (
   <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '40px 20px' }}>
@@ -197,6 +257,9 @@ return (
       >
         {isLoading ? 'Loading...' : '📄 Load Profile Data'}
       </button>
+      <button className="btn-primary" onClick={loadFriends} disabled={isLoading}>
+         {isLoading ? 'Loading...' : '👥 Show Friends'}
+      </button> 
 
       {/* Commented out buttons kept as requested, but styled for future use */}
       {/* <button className="btn-primary" onClick={loadForums} disabled={isLoading}>
@@ -322,21 +385,44 @@ return (
         )}
 
         {!isLoading && activeSection === 'friends' && (
-          <div className="friends-list">
-            <h3>Friends Network</h3>
-            {friends.length === 0 ? <p>No friends found.</p> : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '10px' }}>
+          <div className="card" style={{ minHeight: '400px' }}>
+            <div className="dashboard-header" style={{ marginBottom: '20px', borderBottom: '1px solid #eee', paddingBottom: '15px' }}>
+              <h2 style={{ margin: 0, fontSize: '1.5rem' }}>
+                Friends Network <span style={{ fontSize: '0.8em', color: '#999', fontWeight: 'normal' }}>({friends.length})</span>
+              </h2>
+            </div>
+
+            {friends.length === 0 ? (
+              <div className="content-placeholder">
+                <p>No friends found in your decentralized network yet.</p>
+              </div>
+            ) : (
+              <div className="friends-grid">
                 {friends.map((friend) => (
-                  <div key={friend.id} style={{ padding: '10px', background: '#f9f9f9', borderRadius: '5px' }}>
-                    <strong>{friend.name}</strong>
-                    <p style={{ fontSize: '0.8em', color: '#666' }}>{friend.mutualFriends} Mutuals</p>
+                  <div key={friend.friendCard} className="friend-card">
+                    
+                    {/* 1. Avatar Placeholder (First letter of name) */}
+                    <div className="friend-avatar-placeholder">
+                      {friend.firstName.charAt(0).toUpperCase()}
+                    </div>
+
+                    {/* 2. Name & Details */}
+                    <h3 className="friend-name">{friend.firstName} {friend.lastName}</h3>
+                    <p className="friend-city">📍 {friend.city || 'Unknown City'}</p>
+
+                    {/* 3. Action Button */}
+                    <button 
+                      className="btn-outline-sm"
+                      onClick={() => alert(`Visiting ${friend.firstName} ${friend.lastName}'s pod...`)}
+                    >
+                      View Profile
+                    </button>
                   </div>
                 ))}
               </div>
             )}
           </div>
         )}
-
         {!isLoading && !activeSection && (
           <p style={{ color: '#888', textAlign: 'center' }}>Select an action above to query your profile data.</p>
         )}
