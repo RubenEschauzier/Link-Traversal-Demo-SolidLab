@@ -1,0 +1,122 @@
+import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
+import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { executeTraversalQuery } from '../api/queryEngineStub.js';
+export const ForumDetail = ({ setDebugQuery }) => {
+    const location = useLocation();
+    const navigate = useNavigate();
+    const forumUri = location.state?.forumUri;
+    const activeStream = useRef(null);
+    const [title, setTitle] = useState('');
+    const [moderator, setModerator] = useState('');
+    const [messagesMap, setMessagesMap] = useState({});
+    const [loading, setLoading] = useState(true);
+    useEffect(() => {
+        const fetchForumData = async () => {
+            if (!forumUri)
+                return;
+            const query = `
+        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+        PREFIX snvoc: <https://solidbench.linkeddatafragments.org/www.ldbc.eu/ldbc_socialnet/1.0/vocabulary/>
+        SELECT ?title ?fName ?lName ?mod ?content ?file ?msg ?date ?person ?authorName ?authorLastName WHERE {
+          <${forumUri}> rdf:type snvoc:Forum;
+                   snvoc:title ?title.
+          OPTIONAL {
+            <${forumUri}> snvoc:hasModerator ?mod.
+            ?mod snvoc:firstName ?fName;
+                 snvoc:lastName ?lName.
+          }
+          <${forumUri}> snvoc:containerOf ?msg.
+          { ?msg snvoc:content ?content }
+          UNION
+          { ?msg snvoc:imageFile ?file }
+          ?msg snvoc:creationDate ?date.
+          ?msg snvoc:hasCreator ?person.
+          ?person snvoc:firstName ?authorName;
+                  snvoc:lastName ?authorLastName.
+        }`;
+            const queryModerator = `
+        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+        PREFIX snvoc: <https://solidbench.linkeddatafragments.org/www.ldbc.eu/ldbc_socialnet/1.0/vocabulary/>
+        SELECT ?title ?fName ?lName ?mod  WHERE {
+            <${forumUri}> rdf:type snvoc:Forum;
+                snvoc:title ?title;
+            OPTIONAL {
+                <${forumUri}> snvoc:hasModerator ?mod.
+                ?mod snvoc:firstName ?fName;
+                    snvoc:lastName ?lName.
+            }
+        }`;
+            const queryMessages = `
+        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+        PREFIX snvoc: <https://solidbench.linkeddatafragments.org/www.ldbc.eu/ldbc_socialnet/1.0/vocabulary/>
+        SELECT ?content ?file ?msg ?date ?person ?authorName ?authorLastName ?id WHERE {
+          <${forumUri}>  snvoc:containerOf ?msg.
+          { ?msg snvoc:content ?content }
+          UNION
+          { ?msg snvoc:imageFile ?file }
+          ?msg snvoc:creationDate ?date;
+               snvoc:hasCreator ?person.
+          ?person snvoc:firstName ?authorName;
+                  snvoc:lastName ?authorLastName;
+                  snvoc:id ?id.
+        }`;
+            setDebugQuery(queryModerator + "\n\n\n" + queryMessages);
+            try {
+                const bsMods = await executeTraversalQuery(queryModerator, { traverse: "false" }, undefined);
+                bsMods.on('data', (binding) => {
+                    if (binding.has('title'))
+                        setTitle(binding.get('title').value);
+                    if (binding.has('fName') && binding.has('lName')) {
+                        setModerator(`${binding.get('fName').value} ${binding.get('lName').value}`);
+                    }
+                    setLoading(false);
+                });
+                const bsMessages = await executeTraversalQuery(queryMessages, {}, 2);
+                activeStream.current = bsMessages;
+                bsMessages.on('data', (binding) => {
+                    const msgUri = binding.get('msg').value;
+                    const content = binding.has('content') ? binding.get('content').value : '';
+                    const file = binding.has('file') ? binding.get('file').value : '';
+                    const date = new Date(binding.get('date').value);
+                    const authorUri = binding.get('person').value;
+                    const authorFullName = `${binding.get('authorName').value} ${binding.get('authorLastName').value}`;
+                    const authorId = `${binding.get('id').value}`;
+                    setMessagesMap((prev) => {
+                        const existing = prev[msgUri] || {
+                            uri: msgUri,
+                            content: '',
+                            imageFile: '',
+                            date: date,
+                            authorUri: authorUri,
+                            authorName: authorFullName,
+                            authorid: authorId,
+                        };
+                        return {
+                            ...prev,
+                            [msgUri]: {
+                                ...existing,
+                                content: content || existing.content,
+                                imageFile: file || existing.imageFile,
+                            }
+                        };
+                    });
+                    setLoading(false);
+                });
+                bsMessages.on('end', () => setLoading(false));
+            }
+            catch (err) {
+                console.error("Forum query failed", err);
+                setLoading(false);
+            }
+        };
+        fetchForumData();
+        return () => {
+            if (activeStream.current)
+                activeStream.current.destroy();
+        };
+    }, [forumUri, setDebugQuery]);
+    const sortedMessages = Object.values(messagesMap).sort((a, b) => b.date.getTime() - a.date.getTime());
+    return (_jsxs("div", { className: "container", style: { maxWidth: '800px', margin: '20px auto', padding: '0 20px' }, children: [_jsx("button", { className: "btn-primary", onClick: () => navigate(-1), style: { marginBottom: '20px' }, children: "\u2190 Back to Profile" }), loading && sortedMessages.length === 0 ? (_jsx("div", { className: "card loading-pulse", children: "Searching for forum messages..." })) : (_jsxs(_Fragment, { children: [_jsxs("div", { className: "card forum-header-card", children: [_jsx("h1", { children: title || 'Untitled Forum' }), _jsxs("p", { className: "forum-mod", children: ["\uD83D\uDEE1\uFE0F Moderator: ", _jsx("strong", { children: moderator || 'None' })] })] }), _jsxs("div", { className: "message-list", children: [_jsxs("h3", { children: ["Recent Activity (", sortedMessages.length, ")"] }), sortedMessages.map((msg) => (_jsxs("div", { className: "card message-card", style: { marginBottom: '15px', padding: '20px', cursor: 'pointer' }, children: [_jsxs("div", { className: "author-link", style: { fontWeight: 'bold', color: '#2563eb', marginBottom: '8px', display: 'inline-block' }, onClick: () => navigate(`/profiles/${msg.authorid}`, { state: { personUri: msg.authorUri } }), children: ["\uD83D\uDC64 ", msg.authorName] }), msg.content && (_jsx("div", { style: { marginBottom: '10px' }, children: _jsx("p", { style: { margin: 0, fontSize: '1.1rem', color: '#1e293b' }, children: msg.content }) })), msg.imageFile && (_jsxs("div", { className: "image-attachment-preview", children: [_jsx("small", { children: "\uD83D\uDDBC\uFE0F Image Attachment:" }), _jsx("code", { children: msg.imageFile })] })), _jsx("div", { className: "message-footer", children: _jsxs("small", { children: ["Posted: ", msg.date.toLocaleString()] }) })] }, msg.uri)))] })] }))] }));
+};
+//# sourceMappingURL=ForumDetail.js.map

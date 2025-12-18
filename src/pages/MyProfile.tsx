@@ -1,13 +1,11 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom'; // Assuming you are using React Router for navigation
+import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { executeTraversalQuery } from '../api/queryEngineStub.js';
 import { useAuth } from '../context/AuthContext.js';
 import type { BindingsStream } from '@comunica/types';
 import '../index.css'; 
 
 // --- Data Interfaces ---
-
-// 1. Profile Information Interface
 interface UserProfile {
   name: string;
   lastName: string;
@@ -20,36 +18,36 @@ interface UserProfile {
   interests: string[];
 }
 
-// 2. Forum Interface
 interface Forum {
+  uri: string;
   id: string;
   title: string;
   memberCount: number;
 }
 
-// 3. Friend Interface
 interface Friend {
   firstName: string;
   lastName: string;
   city: string;
   friendCard: string;
+  id: string;
 }
 
-// --- Props Interface ---
 interface ProfileProps {
   setDebugQuery: (query: string) => void;
 }
 
-// --- SPARQL Query Constants ---
+// --- SPARQL Queries ---
 const QUERY_MY_FRIENDS = `
   PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
   PREFIX foaf: <http://xmlns.com/foaf/0.1/>
   PREFIX snvoc: <https://solidbench.linkeddatafragments.org/www.ldbc.eu/ldbc_socialnet/1.0/vocabulary/>
-  SELECT ?firstName ?lastName ?cityName ?friendProfile WHERE {
+  SELECT ?firstName ?lastName ?cityName ?friendProfile ?id WHERE {
     TEMPLATE:ME rdf:type snvoc:Person;
       snvoc:knows ?friend.
     ?friend snvoc:hasPerson ?friendProfile.
     ?friendProfile rdf:type snvoc:Person;
+      snvoc:id ?id;
       snvoc:firstName ?firstName;
       snvoc:lastName ?lastName;
       snvoc:isLocatedIn ?city.
@@ -61,7 +59,7 @@ const QUERY_MY_INFO = `
   PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
   PREFIX foaf: <http://xmlns.com/foaf/0.1/>
   PREFIX snvoc: <https://solidbench.linkeddatafragments.org/www.ldbc.eu/ldbc_socialnet/1.0/vocabulary/>
-  SELECT ?firstName ?lastName ?birthday ?locationIP ?browserUsed ?cityName ?gender ?creationDate ?email ?interestName WHERE {
+  SELECT ?firstName ?lastName ?birthday ?locationIP ?cityName ?gender ?creationDate ?email ?interestName WHERE {
     TEMPLATE:ME rdf:type snvoc:Person;
       snvoc:firstName ?firstName;
       snvoc:lastName ?lastName;
@@ -77,354 +75,296 @@ const QUERY_MY_INFO = `
   }
 `;
 
+const QUERY_MY_FORUMS = `
+  PREFIX snvoc: <https://solidbench.linkeddatafragments.org/www.ldbc.eu/ldbc_socialnet/1.0/vocabulary/>
+  SELECT DISTINCT ?forum ?forumId ?forumTitle WHERE {
+    ?message snvoc:hasCreator TEMPLATE:ME.
+    ?forum snvoc:containerOf ?message;
+      snvoc:id ?forumId;
+      snvoc:title ?forumTitle.
+  }
+`;
 
-const processProfileBinding = (binding: any, accumulatingValues: Record<string, string[]>): UserProfile => {
-  if (!accumulatingValues['email']) {
-    accumulatingValues['email'] = [];
+const QUERY_MEMBER_COUNT = `
+  PREFIX snvoc: <https://solidbench.linkeddatafragments.org/www.ldbc.eu/ldbc_socialnet/1.0/vocabulary/>
+  SELECT (COUNT(?member) AS ?count) WHERE {
+    <FORUM_IRI> snvoc:hasMember ?member.
   }
-  if (!accumulatingValues['email'].includes(binding.get('email').value)){
-    accumulatingValues['email'].push(binding.get('email').value);
-  }
-  if (!accumulatingValues['interests']) {
-    accumulatingValues['interests'] = [];
-  }
-  if (!accumulatingValues['interests'].includes(binding.get('interestName').value)){
-    accumulatingValues['interests'].push(binding.get('interestName').value);
-  }
-  return {
-    name: binding.get('firstName').value,
-    lastName: binding.get('lastName').value,
-    gender: binding.get('gender').value,
-    birthday: binding.get('birthday').value,
-    creationDate: new Date(binding.get('creationDate').value),
-    locationIP: binding.get('locationIP').value,
-    city: binding.get('cityName').value,
-    email: accumulatingValues['email'].join(', '),
-    interests: accumulatingValues['interests']
-  };
-}
+`;
 
-const processFriendBinding = (binding: any, accumulatingValues: Record<string, string[]>): Friend[] => {
-  if (!accumulatingValues['firstName']) {
-    accumulatingValues['firstName'] = [];
+// --- Logic Helpers ---
+
+const processProfileBinding = (binding: any, prev: UserProfile | null): UserProfile => {
+  const email = binding.get('email').value;
+  const interest = binding.get('interestName').value;
+
+  // If we haven't started building the profile yet, create the base
+  if (!prev) {
+    return {
+      name: binding.get('firstName').value,
+      lastName: binding.get('lastName').value,
+      gender: binding.get('gender').value,
+      birthday: binding.get('birthday').value,
+      creationDate: new Date(binding.get('creationDate').value),
+      locationIP: binding.get('locationIP').value,
+      city: binding.get('cityName').value,
+      email: email,
+      interests: [interest]
+    };
   }
-  if (!accumulatingValues['firstName'].includes(binding.get('firstName').value)) {
-    accumulatingValues['firstName'].push(binding.get('firstName').value);
-  }
-  if (!accumulatingValues['lastName']) {
-    accumulatingValues['lastName'] = [];
-  }
-  if (!accumulatingValues['lastName'].includes(binding.get('lastName').value)) {
-    accumulatingValues['lastName'].push(binding.get('lastName').value);
-  }
-  if (!accumulatingValues['city']) {
-    accumulatingValues['city'] = [];
-  }
-  if (!accumulatingValues['city'].includes(binding.get('cityName').value)) {
-    accumulatingValues['city'].push(binding.get('cityName').value);
-  }
-  if (!accumulatingValues['friendCard']) {
-    accumulatingValues['friendCard'] = [];
-  }
-  if (!accumulatingValues['friendCard'].includes(binding.get('friendProfile').value)) {
-    accumulatingValues['friendCard'].push(binding.get('friendProfile').value);
-  }
+
+  // Accumulate unique interests and emails
+  const updatedInterests = prev.interests.includes(interest) 
+    ? prev.interests 
+    : [...prev.interests, interest];
   
-  return accumulatingValues['firstName'].map((_, index) => ({
-    firstName: accumulatingValues['firstName']![index]!,
-    lastName: accumulatingValues['lastName']![index]!,
-    city: accumulatingValues['city']![index]!,
-    friendCard: accumulatingValues['friendCard']![index]!,
-  }));
-}
+  const updatedEmails = prev.email.includes(email) 
+    ? prev.email 
+    : `${prev.email}, ${email}`;
+
+  return { ...prev, interests: updatedInterests, email: updatedEmails };
+};
 
 export const Profile: React.FC<ProfileProps> = ({ setDebugQuery }) => {
+  const activeStream = useRef<BindingsStream | null>(null);
   const { user, isAuthenticated } = useAuth();
-  // State for the different data sections
+  const navigate = useNavigate();
+
   const [profileData, setProfileData] = useState<UserProfile | null>(null);
   const [forums, setForums] = useState<Forum[]>([]);
   const [friends, setFriends] = useState<Friend[]>([]);
-
-  // Toggle state to show/hide sections
   const [activeSection, setActiveSection] = useState<'info' | 'forums' | 'friends' | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const navigate = useNavigate();
+
+  // Stop any active stream to prevent memory leaks or overlapping data
+  const stopQuery = () => {
+    console.log("Destroying link traversal query result stream...")
+    if (activeStream.current) {
+      activeStream.current.destroy();
+      activeStream.current = null;
+    }
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => stopQuery();
+  }, []);
 
   if (!isAuthenticated || !user) {
     return (
-      <div style={{ padding: '20px' }}>
+      <div className="card" style={{ margin: '40px auto', maxWidth: '500px', textAlign: 'center' }}>
         <h2>Access Denied</h2>
-        <p>Please click "Fake Login" in the top right corner.</p>
+        <p>Please log in to view your profile.</p>
       </div>
     );
   }
 
+  // --- Data Loaders ---
+
   const loadProfileInfo = async () => {
+    stopQuery();
     setIsLoading(true);
     setActiveSection('info');
-
-    // Clear old data and ensure the UI shows a loading state
     setProfileData(null);
 
     const infoQuery = QUERY_MY_INFO.replaceAll('TEMPLATE:ME', `<${user.username}>`);
-    console.log(infoQuery)
     setDebugQuery(infoQuery);
     
     try {
-      // In a real app, you would parse the result here. 
-      // We assume the stub returns the correct shape or we cast it.
-      const bs: BindingsStream = await executeTraversalQuery(infoQuery, {});
-      const accumulatingValues: Record<string, string[]> = {};
-      bs.on('data', (binding) => {
-        const profileData = processProfileBinding(binding, accumulatingValues);
-        setProfileData(profileData);
+      const bs = await executeTraversalQuery(infoQuery, {}, 2);
+      activeStream.current = bs;
+
+      bs.on('data', (binding: any) => {
+        setProfileData(prev => processProfileBinding(binding, prev));
+        setIsLoading(false); 
       });
-      await new Promise<void>((resolve, reject) => {
-        bs.on('end', resolve); // Resolve the promise when the stream ends
-        bs.on('error', reject); // Reject if there's a stream error
-      });
+
+      bs.on('end', () => setIsLoading(false));
     } catch (error) {
       console.error("Failed to load profile", error);
-    } finally {
       setIsLoading(false);
     }
   };
 
-  // const loadForums = async () => {
-  //   setIsLoading(true);
-  //   setActiveSection('forums');
-  //   setDebugQuery(QUERY_MY_FORUMS);
+  const loadForums = async () => {
+    stopQuery();
+    setIsLoading(true);
+    setActiveSection('forums');
+    setForums([]);
 
-  //   try {
-  //     const data = (await executeTraversalQuery(QUERY_MY_FORUMS, {})) as Forum[];
-  //     setForums(data);
-  //   } catch (error) {
-  //     console.error("Failed to load forums", error);
-  //   } finally {
-  //     setIsLoading(false);
-  //   }
-  // };
+    const forumsQuery = QUERY_MY_FORUMS.replaceAll('TEMPLATE:ME', `<${user.username}>`);
+    setDebugQuery(forumsQuery);
+
+    try {
+      const bs = await executeTraversalQuery(forumsQuery, {}, undefined);
+      activeStream.current = bs;
+
+      bs.on('data', (binding: any) => {
+        const forumIri = binding.get('forum').value;
+        const newForum: Forum = { 
+          uri: forumIri, 
+          id: binding.get('forumId').value, 
+          title: binding.get('forumTitle').value, 
+          memberCount: -1 
+        };
+
+        setForums(prev => prev.some(f => f.uri === forumIri) ? prev : [...prev, newForum]);
+        setIsLoading(false);
+        // Background query for member count
+        const countQuery = QUERY_MEMBER_COUNT.replace('FORUM_IRI', forumIri);
+        executeTraversalQuery(countQuery, {}, 2).then(countBs => {
+          countBs.on('data', (countBinding: any) => {
+            const count = parseInt(countBinding.get('count').value);
+            setForums(curr => curr.map(f => f.uri === forumIri ? { ...f, memberCount: count } : f));
+          });
+        });
+      });
+
+      bs.on('end', () => setIsLoading(false));
+    } catch (error) {
+      console.error("Failed to load forums", error);
+      setIsLoading(false);
+    }
+  };
 
   const loadFriends = async () => {
+    stopQuery();
     setIsLoading(true);
     setActiveSection('friends');
-
-    // Clear old data and ensure the UI shows a loading state
-    setProfileData(null);
+    setFriends([]);
 
     const friendsQuery = QUERY_MY_FRIENDS.replaceAll('TEMPLATE:ME', `<${user.username}>`);
-    console.log(friendsQuery)
     setDebugQuery(friendsQuery);
 
     try {
-      const bs: BindingsStream = await executeTraversalQuery(friendsQuery, {});
-      const accumulatingValues: Record<string, string[]> = {};
-      bs.on('data', (binding) => {
-        console.log("BINDING!!!")
-        const profileData = processFriendBinding(binding, accumulatingValues);
-        console.log(profileData);
-        setFriends(profileData);
+      const bs = await executeTraversalQuery(friendsQuery, {}, 2);
+      activeStream.current = bs;
+
+      bs.on('data', (binding: any) => {
+        const friendUri = binding.get('friendProfile').value;
+        const newFriend: Friend = {
+          firstName: binding.get('firstName').value,
+          lastName: binding.get('lastName').value,
+          city: binding.get('cityName').value,
+          id: binding.get('id').value,
+          friendCard: friendUri,
+        };
+        setFriends(prev => prev.some(f => f.friendCard === friendUri) ? prev : [...prev, newFriend]);
         setIsLoading(false);
       });
-      await new Promise<void>((resolve, reject) => {
-        bs.on('end', resolve); // Resolve the promise when the stream ends
-        bs.on('error', reject); // Reject if there's a stream error
-      });
+
+      bs.on('end', () => setIsLoading(false));
     } catch (error) {
       console.error("Failed to load friends", error);
-    } finally {
       setIsLoading(false);
     }
   };
 
-return (
-  <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '40px 20px' }}>
-    
-    {/* 1. Modern Header Section */}
-    <div className="dashboard-header">
-      <h1 className="dashboard-title">Welcome back, {user.name} 👋</h1>
-      <div className="user-badge">
-        <span>ID: {user.username}</span>
-      </div>
-    </div>
-
-    {/* 2. Action Buttons */}
-    <div className="action-bar">
-      <button 
-        className="btn-primary" 
-        onClick={loadProfileInfo} 
-        disabled={isLoading}
-      >
-        {isLoading ? 'Loading...' : '📄 Load Profile Data'}
-      </button>
-      <button className="btn-primary" onClick={loadFriends} disabled={isLoading}>
-         {isLoading ? 'Loading...' : '👥 Show Friends'}
-      </button> 
-
-      {/* Commented out buttons kept as requested, but styled for future use */}
-      {/* <button className="btn-primary" onClick={loadForums} disabled={isLoading}>
-        💬 Show My Forums
-      </button>
-      <button className="btn-primary" onClick={loadFriends} disabled={isLoading}>
-        👥 Show Friends
-      </button> 
-      */}
-    </div>
-
-    {/* 3. Main Content Area */}
-    {/* We use 'min-height' to prevent the page from jumping around */}
-    <div style={{ minHeight: '300px' }}>
+  // --- Main Render ---
+  return (
+    <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '40px 20px' }}>
       
-      {/* A. Loading State */}
-      {isLoading && (
-        <div className="card content-placeholder">
-          <div className="loading-pulse">
-            {/* Simple CSS Spinner */}
-            <div style={{
-              width: '20px', height: '20px', 
-              border: '3px solid #e2e8f0', borderTopColor: '#2563eb', 
-              borderRadius: '50%', animation: 'spin 1s linear infinite'
-            }} />
-            <span>Traversing the decentralized web...</span>
-          </div>
-          {/* Inline style for the keyframes to work without external CSS file if needed */}
-          <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
-        </div>
-      )}
+      <div className="dashboard-header">
+        <h1 className="dashboard-title">Welcome back, {user.name} 👋</h1>
+        <div className="user-badge"><span>ID: {user.username}</span></div>
+      </div>
 
-      {/* B. Empty State (When not loading and no data yet) */}
-      {!isLoading && !activeSection && (
-        <div className="card content-placeholder">
-          <h3>No data loaded yet</h3>
-          <p>Click the "Load Profile Data" button above to fetch your decentralized identity.</p>
-        </div>
-      )}
-      {!isLoading && activeSection === 'info' && profileData && (
-      <div className="profile-container">
+      <div className="action-bar">
+        <button className="btn-primary" onClick={loadProfileInfo} disabled={isLoading}>
+          {isLoading && activeSection === 'info' ? 'Loading...' : '📄 My Profile'}
+        </button>
+        <button className="btn-primary" onClick={loadFriends} disabled={isLoading}>
+          {isLoading && activeSection === 'friends' ? 'Loading...' : '👥 Friends'}
+        </button> 
+        <button className="btn-primary" onClick={loadForums} disabled={isLoading}>
+          {isLoading && activeSection === 'forums' ? 'Loading...' : '💬 Forums'}
+        </button>
+      </div>
+
+      <div style={{ minHeight: '300px' }}>
         
-        {/* === LEFT COLUMN === */}
-        <div className="card profile-column-left">
-          <div className="profile-header">
-            {(
-              <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: '#ddd', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem' }}>👤</div>
-            )}
-            
-            <div>
-              <h2 style={{ margin: 0, fontSize: '1.8rem', color: '#2c3e50' }}>
-                {profileData.name} {profileData.lastName}
-              </h2>
-              <p style={{ margin: '5px 0 0 0', color: '#666' }}>
-                📍 {profileData.city || 'Unknown Location'}
-              </p>
+        {/* Loading Indicator */}
+        {isLoading && (
+          <div className="card content-placeholder">
+            <div className="loading-pulse">
+              <div className="spinner" />
+              <span>Traversing the decentralized web...</span>
             </div>
           </div>
+        )}
 
-          <div className="metadata-grid">
-            <div>
-              <div className="meta-label">Gender</div>
-              <div className="meta-value">{profileData.gender}</div>
-            </div>
-            <div>
-              <div className="meta-label">Birthday</div>
-              <div className="meta-value">{profileData.birthday}</div>
-            </div>
-            <div>
-              <div className="meta-label">Member Since</div>
-              <div className="meta-value">
-                {new Date(profileData.creationDate).toLocaleDateString()}
-              </div>
-            </div>
-            <div>
-              <div className="meta-label">IP Address</div>
-              <div className="meta-value">{profileData.locationIP}</div>
-            </div>
-            <div style={{ gridColumn: '1 / -1' }}>
-              <div className="meta-label">Email Address</div>
-              <div className="meta-value">{profileData.email}</div>
-            </div>
-          </div>
-        </div>
-
-          {/* === RIGHT COLUMN === */}
-          <div className="card profile-column-right">
-            <h3 style={{ marginTop: 0, borderBottom: '1px solid #eee', paddingBottom: '10px' }}>
-              ❤️ Interests
-            </h3>
-            
-            <div className="scroll-area">
-              {profileData.interests && profileData.interests.length > 0 ? (
+        {/* Info Section */}
+        {!isLoading && activeSection === 'info' && profileData && (
+          <div className="profile-container">
+            <div className="card profile-column-left">
+              <div className="profile-header">
+                <div className="avatar-circle">👤</div>
                 <div>
-                  {profileData.interests.map((interest, index) => (
-                    <span key={index} className="interest-chip">
-                      {interest}
-                    </span>
-                  ))}
+                  <h2 style={{ margin: 0 }}>{profileData.name} {profileData.lastName}</h2>
+                  <p style={{ color: '#666' }}>📍 {profileData.city}</p>
                 </div>
-              ) : (
-                <p style={{ color: '#999', fontStyle: 'italic' }}>No interests listed.</p>
-              )}
+              </div>
+              <div className="metadata-grid">
+                <div><div className="meta-label">Gender</div><div className="meta-value">{profileData.gender}</div></div>
+                <div><div className="meta-label">Birthday</div><div className="meta-value">{profileData.birthday}</div></div>
+                <div><div className="meta-label">Member Since</div><div className="meta-value">{profileData.creationDate.toLocaleDateString()}</div></div>
+                <div><div className="meta-label">IP Address</div><div className="meta-value">{profileData.locationIP}</div></div>
+                <div style={{ gridColumn: '1 / -1' }}><div className="meta-label">Email</div><div className="meta-value">{profileData.email}</div></div>
+              </div>
+            </div>
+
+            <div className="card profile-column-right">
+              <h3>❤️ Interests</h3>
+              <div className="scroll-area">
+                {profileData.interests.map((interest, i) => (
+                  <span key={i} className="interest-chip">{interest}</span>
+                ))}
+              </div>
             </div>
           </div>
-
-        </div>
         )}
+
+        {/* Forums Section */}
         {!isLoading && activeSection === 'forums' && (
-          <div className="forums-list">
-            <h3>Subscribed Forums</h3>
-            {forums.length === 0 ? <p>No forums found.</p> : (
-              <ul style={{ listStyle: 'none', padding: 0 }}>
-                {forums.map((forum) => (
-                  <li key={forum.id} style={{ padding: '10px', borderBottom: '1px solid #eee' }}>
-                    <strong>{forum.title}</strong>
-                    <span style={{ float: 'right', color: '#888' }}>{forum.memberCount} Members</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-
-        {!isLoading && activeSection === 'friends' && (
-          <div className="card" style={{ minHeight: '400px' }}>
-            <div className="dashboard-header" style={{ marginBottom: '20px', borderBottom: '1px solid #eee', paddingBottom: '15px' }}>
-              <h2 style={{ margin: 0, fontSize: '1.5rem' }}>
-                Friends Network <span style={{ fontSize: '0.8em', color: '#999', fontWeight: 'normal' }}>({friends.length})</span>
-              </h2>
+          <div className="card">
+            <h2>My Forums ({forums.length})</h2>
+            <div className="friends-grid">
+              {forums.map((forum) => (
+                <div key={forum.uri} className="friend-card">
+                  <div className="friend-avatar-placeholder" style={{ background: '#e0e7ff' }}>💬</div>
+                  <h3 className="friend-name">{forum.title}</h3>
+                  <p className="friend-city">
+                    {forum.memberCount === -1 ? "⏳ Counting..." : `👥 ${forum.memberCount} Members`}
+                  </p>
+                  <button className="btn-outline-sm"
+                    onClick={() => navigate(`/forums/${forum.id}`, { state: { forumUri: forum.uri } })}
+                  >
+                    View Forum
+                  </button>    
+                </div>
+              ))}
             </div>
-
-            {friends.length === 0 ? (
-              <div className="content-placeholder">
-                <p>No friends found in your decentralized network yet.</p>
-              </div>
-            ) : (
-              <div className="friends-grid">
-                {friends.map((friend) => (
-                  <div key={friend.friendCard} className="friend-card">
-                    
-                    {/* 1. Avatar Placeholder (First letter of name) */}
-                    <div className="friend-avatar-placeholder">
-                      {friend.firstName.charAt(0).toUpperCase()}
-                    </div>
-
-                    {/* 2. Name & Details */}
-                    <h3 className="friend-name">{friend.firstName} {friend.lastName}</h3>
-                    <p className="friend-city">📍 {friend.city || 'Unknown City'}</p>
-
-                    {/* 3. Action Button */}
-                    <button 
-                      className="btn-outline-sm"
-                      onClick={() => alert(`Visiting ${friend.firstName} ${friend.lastName}'s pod...`)}
-                    >
-                      View Profile
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
-        {!isLoading && !activeSection && (
-          <p style={{ color: '#888', textAlign: 'center' }}>Select an action above to query your profile data.</p>
+
+        {/* Friends Section */}
+        {!isLoading && activeSection === 'friends' && (
+          <div className="card">
+            <h2>Friends Network ({friends.length})</h2>
+            <div className="friends-grid">
+              {friends.map((friend) => (
+                <div key={friend.friendCard} className="friend-card">
+                  <div className="friend-avatar-placeholder">{friend.firstName.charAt(0)}</div>
+                  <h3 className="friend-name">{friend.firstName} {friend.lastName}</h3>
+                  <p className="friend-city">📍 {friend.city}</p>
+                  <button className="btn-outline-sm"
+                    onClick={() => navigate(`/profiles/${friend.id}`, { state: { personUri: friend.friendCard } })}
+                   >
+                    View Profile</button>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </div>
