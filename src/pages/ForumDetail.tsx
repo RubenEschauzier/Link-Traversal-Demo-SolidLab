@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { executeTraversalQuery } from '../api/queryEngineStub.js';
+import { executeTraversalQuery, ReactTraversalLogger } from '../api/queryEngineStub.js';
 import type { BindingsStream } from '@comunica/types';
 
 // --- Props Interface ---
 interface ForumProps {
   setDebugQuery: (query: string) => void;
+  logger: ReactTraversalLogger | undefined;
 }
 
 interface Message {
@@ -22,7 +23,7 @@ interface Author {
     uri: string;
 }
 
-export const ForumDetail: React.FC<ForumProps> = ({ setDebugQuery }) => {
+export const ForumDetail: React.FC<ForumProps> = ({ setDebugQuery, logger }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const forumUri = location.state?.forumUri;
@@ -91,7 +92,7 @@ export const ForumDetail: React.FC<ForumProps> = ({ setDebugQuery }) => {
 
       try {
         const bsMods: BindingsStream = await executeTraversalQuery(queryModerator,
-             {traverse: "false"}, undefined);
+             {traverse: "false", log: logger }, undefined);
         bsMods.on('data', (binding) => {
           if (binding.has('title')) setTitle(binding.get('title').value);
           if (binding.has('fName') && binding.has('lName')) {
@@ -99,7 +100,7 @@ export const ForumDetail: React.FC<ForumProps> = ({ setDebugQuery }) => {
           }
           setLoading(false);
         })
-        const bsMessages: BindingsStream = await executeTraversalQuery(queryMessages, {}, 2);
+        const bsMessages: BindingsStream = await executeTraversalQuery(queryMessages, {log: logger }, 2);
         activeStream.current = bsMessages;
 
         bsMessages.on('data', (binding) => {

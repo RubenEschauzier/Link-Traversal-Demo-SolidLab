@@ -1,8 +1,8 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { executeTraversalQuery } from '../api/queryEngineStub.js';
-export const ForumDetail = ({ setDebugQuery }) => {
+import { executeTraversalQuery, ReactTraversalLogger } from '../api/queryEngineStub.js';
+export const ForumDetail = ({ setDebugQuery, logger }) => {
     const location = useLocation();
     const navigate = useNavigate();
     const forumUri = location.state?.forumUri;
@@ -63,7 +63,7 @@ export const ForumDetail = ({ setDebugQuery }) => {
         }`;
             setDebugQuery(queryModerator + "\n\n\n" + queryMessages);
             try {
-                const bsMods = await executeTraversalQuery(queryModerator, { traverse: "false" }, undefined);
+                const bsMods = await executeTraversalQuery(queryModerator, { traverse: "false", log: logger }, undefined);
                 bsMods.on('data', (binding) => {
                     if (binding.has('title'))
                         setTitle(binding.get('title').value);
@@ -72,7 +72,7 @@ export const ForumDetail = ({ setDebugQuery }) => {
                     }
                     setLoading(false);
                 });
-                const bsMessages = await executeTraversalQuery(queryMessages, {}, 2);
+                const bsMessages = await executeTraversalQuery(queryMessages, { log: logger }, 2);
                 activeStream.current = bsMessages;
                 bsMessages.on('data', (binding) => {
                     const msgUri = binding.get('msg').value;

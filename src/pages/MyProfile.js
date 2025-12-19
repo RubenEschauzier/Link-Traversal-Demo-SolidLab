@@ -1,7 +1,7 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { executeTraversalQuery } from '../api/queryEngineStub.js';
+import { executeTraversalQuery, ReactTraversalLogger } from '../api/queryEngineStub.js';
 import { useAuth } from '../context/AuthContext.js';
 import '../index.css';
 // --- SPARQL Queries ---
@@ -82,7 +82,7 @@ const processProfileBinding = (binding, prev) => {
         : `${prev.email}, ${email}`;
     return { ...prev, interests: updatedInterests, email: updatedEmails };
 };
-export const Profile = ({ setDebugQuery }) => {
+export const Profile = ({ setDebugQuery, logger }) => {
     const activeStream = useRef(null);
     const { user, isAuthenticated } = useAuth();
     const navigate = useNavigate();
@@ -91,13 +91,13 @@ export const Profile = ({ setDebugQuery }) => {
     const [friends, setFriends] = useState([]);
     const [activeSection, setActiveSection] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
-    // Stop any active stream to prevent memory leaks or overlapping data
     const stopQuery = () => {
-        console.log("Destroying link traversal query result stream...");
         if (activeStream.current) {
             activeStream.current.destroy();
             activeStream.current = null;
         }
+        // IMPORTANT: Clear the UI logs in the parent when we stop a query manually
+        setDebugQuery("");
     };
     // Cleanup on unmount
     useEffect(() => {
@@ -115,7 +115,7 @@ export const Profile = ({ setDebugQuery }) => {
         const infoQuery = QUERY_MY_INFO.replaceAll('TEMPLATE:ME', `<${user.username}>`);
         setDebugQuery(infoQuery);
         try {
-            const bs = await executeTraversalQuery(infoQuery, {}, 2);
+            const bs = await executeTraversalQuery(infoQuery, { log: logger }, 2);
             activeStream.current = bs;
             bs.on('data', (binding) => {
                 setProfileData(prev => processProfileBinding(binding, prev));
@@ -134,11 +134,13 @@ export const Profile = ({ setDebugQuery }) => {
         setActiveSection('forums');
         setForums([]);
         const forumsQuery = QUERY_MY_FORUMS.replaceAll('TEMPLATE:ME', `<${user.username}>`);
-        setDebugQuery(forumsQuery);
+        setDebugQuery(forumsQuery + "\n\n" + QUERY_MEMBER_COUNT);
         try {
-            const bs = await executeTraversalQuery(forumsQuery, {}, undefined);
+            const bs = await executeTraversalQuery(forumsQuery, { log: logger }, undefined);
             activeStream.current = bs;
             bs.on('data', (binding) => {
+                if (activeStream.current !== bs)
+                    return;
                 const forumIri = binding.get('forum').value;
                 const newForum = {
                     uri: forumIri,
@@ -150,14 +152,17 @@ export const Profile = ({ setDebugQuery }) => {
                 setIsLoading(false);
                 // Background query for member count
                 const countQuery = QUERY_MEMBER_COUNT.replace('FORUM_IRI', forumIri);
-                executeTraversalQuery(countQuery, {}, 2).then(countBs => {
+                executeTraversalQuery(countQuery, { traverse: false }, 2).then(countBs => {
                     countBs.on('data', (countBinding) => {
                         const count = parseInt(countBinding.get('count').value);
                         setForums(curr => curr.map(f => f.uri === forumIri ? { ...f, memberCount: count } : f));
                     });
                 });
             });
-            bs.on('end', () => setIsLoading(false));
+            bs.on('end', () => {
+                if (activeStream.current === bs)
+                    setIsLoading(false);
+            });
         }
         catch (error) {
             console.error("Failed to load forums", error);
@@ -172,7 +177,7 @@ export const Profile = ({ setDebugQuery }) => {
         const friendsQuery = QUERY_MY_FRIENDS.replaceAll('TEMPLATE:ME', `<${user.username}>`);
         setDebugQuery(friendsQuery);
         try {
-            const bs = await executeTraversalQuery(friendsQuery, {}, 2);
+            const bs = await executeTraversalQuery(friendsQuery, { log: logger }, 2);
             activeStream.current = bs;
             bs.on('data', (binding) => {
                 const friendUri = binding.get('friendProfile').value;

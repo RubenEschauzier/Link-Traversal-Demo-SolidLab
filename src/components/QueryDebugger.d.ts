@@ -6,14 +6,11 @@ interface LogEntry {
     level?: 'info' | 'warn' | 'error';
 }
 interface QueryDebuggerProps {
-    /** Flag to control the visibility of the modal. */
     isOpen: boolean;
-    /** Callback function to close the modal. */
     onClose: () => void;
-    /** The current SPARQL query string being executed. */
     currentQuery: string;
-    /** Array of log entries to display in the log window. */
     logs: LogEntry[];
+    isTrackingEnabled?: boolean;
 }
 declare const QueryDebugger: React.FC<QueryDebuggerProps>;
 export default QueryDebugger;

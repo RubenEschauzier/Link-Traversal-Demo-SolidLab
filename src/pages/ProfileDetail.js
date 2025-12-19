@@ -1,7 +1,7 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { executeTraversalQuery } from '../api/queryEngineStub.js';
+import { executeTraversalQuery, ReactTraversalLogger } from '../api/queryEngineStub.js';
 import { useAuth } from '../context/AuthContext.js';
 import '../index.css';
 const QUERY_PERSON_INFO = `
@@ -43,7 +43,7 @@ const processProfileBinding = (binding, prev) => {
     const updatedEmails = prev.email.includes(email) ? prev.email : `${prev.email}, ${email}`;
     return { ...prev, interests: updatedInterests, email: updatedEmails };
 };
-export const UserProfileDetail = ({ setDebugQuery }) => {
+export const UserProfileDetail = ({ setDebugQuery, logger }) => {
     const { id } = useParams();
     const location = useLocation();
     const navigate = useNavigate();
@@ -86,7 +86,7 @@ export const UserProfileDetail = ({ setDebugQuery }) => {
             const infoQuery = QUERY_PERSON_INFO.replace('TEMPLATE:URI', targetUri);
             setDebugQuery(infoQuery);
             try {
-                const bs = await executeTraversalQuery(infoQuery, {}, 2);
+                const bs = await executeTraversalQuery(infoQuery, { log: logger }, 2);
                 activeStream.current = bs;
                 bs.on('data', (binding) => {
                     setProfileData(prev => processProfileBinding(binding, prev));

@@ -1,100 +1,213 @@
-import React, { type CSSProperties } from 'react';
+import React, { type CSSProperties, useEffect, useRef, useMemo, useState, useCallback } from 'react';
 
-// 1. Define the type for a single log entry
 interface LogEntry {
   id: number;
   message: string;
-  timestamp: string; // Or Date, depending on your actual log data
+  timestamp: string;
   level?: 'info' | 'warn' | 'error';
 }
 
-// 2. Define the Props interface for the component
 interface QueryDebuggerProps {
-  /** Flag to control the visibility of the modal. */
   isOpen: boolean;
-  /** Callback function to close the modal. */
   onClose: () => void;
-  /** The current SPARQL query string being executed. */
   currentQuery: string;
-  /** Array of log entries to display in the log window. */
-  logs: LogEntry[]; 
+  logs: LogEntry[];
+  isTrackingEnabled?: boolean;
 }
 
-// Define component using the Props interface
-const QueryDebugger: React.FC<QueryDebuggerProps> = ({ isOpen, onClose, currentQuery, logs }) => {
+const formatQuery = (query: string) => {
+  if (!query) return '';
+  const lines = query.split('\n');
+  const indents = lines
+    .filter(line => line.trim().length > 0)
+    .map(line => line.search(/\S/))
+    .filter(indent => indent !== -1);
+
+  const minIndent = indents.length > 0 ? Math.min(...indents) : 0;
+  const cleanLines = lines
+    .map(line => (line.length >= minIndent ? line.slice(minIndent) : line).trimEnd())
+    .filter((line, index, arr) => !(index === 0 && line === "") && !(index === arr.length - 1 && line === ""));
+  
+  if (cleanLines.length > 0) cleanLines[0] = "\t" + cleanLines[0]!.trimStart();
+
+  const finalString = cleanLines.join('\n');
+  let escaped = finalString.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  return escaped
+    .replace(/\b(SELECT|WHERE|PREFIX|OPTIONAL|FILTER|LIMIT|OFFSET|ORDER BY|DISTINCT|GRAPH|UNION|CONSTRUCT|ASK|DESCRIBE)\b/gi, 
+      '<span style="color: #c678dd; font-weight: bold;">$1</span>')
+    .replace(/(\?[a-zA-Z0-9_]+)/g, 
+      '<span style="color: #d19a66;">$1</span>')
+    .replace(/(&lt;https?:\/\/[^&]+&gt;)/g, 
+      '<span style="color: #98c379;">$1</span>')
+    .replace(/\b([a-zA-Z0-9_-]+:[a-zA-Z0-9_-]+)\b/g, 
+      '<span style="color: #61afef;">$1</span>');
+};
+
+const QueryDebugger: React.FC<QueryDebuggerProps> = ({
+  isOpen,
+  onClose,
+  currentQuery,
+  logs,
+  isTrackingEnabled = true
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  const [queryHeight, setQueryHeight] = useState(250);
+  const [isResizing, setIsResizing] = useState(false);
+
+  // Filter States
+  const [showTraverse, setShowTraverse] = useState(true);
+  const [showPlanning, setShowPlanning] = useState(true);
+
+  // Filter Logic
+  const filteredLogs = useMemo(() => {
+    return logs.filter(log => {
+      const msg = log.message.trim();
+      const isTraverse = /^(Identified|Requesting)/i.test(msg) || msg.includes('Identified as');
+      const isPlanning = /^(Determined)/i.test(msg);
+
+      if (isTraverse && !showTraverse) return false;
+      if (isPlanning && !showPlanning) return false;
+      return true;
+    });
+  }, [logs, showTraverse, showPlanning]);
+
+  const startResizing = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  const stopResizing = useCallback(() => setIsResizing(false), []);
+
+  const resize = useCallback((e: MouseEvent) => {
+    if (isResizing && containerRef.current) {
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const newHeight = e.clientY - containerRect.top - 60;
+      if (newHeight > 100 && newHeight < containerRect.height * 0.7) {
+        setQueryHeight(newHeight);
+      }
+    }
+  }, [isResizing]);
+
+  useEffect(() => {
+    if (isResizing) {
+      window.addEventListener('mousemove', resize);
+      window.addEventListener('mouseup', stopResizing);
+    }
+    return () => {
+      window.removeEventListener('mousemove', resize);
+      window.removeEventListener('mouseup', stopResizing);
+    };
+  }, [isResizing, resize, stopResizing]);
+
+  const highlightedQuery = useMemo(() => formatQuery(currentQuery), [currentQuery]);
+
   if (!isOpen) return null;
 
   return (
-    <div style={styles.overlay}>
-      <div style={styles.modal}>
-        <h2>⛓️ Link Traversal Inspector</h2>
-        <p><strong>Current Context:</strong> <a href="http://solidbench-server:3000/.../card#me">http://solidbench-server:3000/.../card#me</a></p>
-        
-        <h3>Executing SPARQL:</h3>
-        <pre style={styles.codeBlock}>{currentQuery}</pre>
+    <div 
+      ref={containerRef} 
+      style={{
+        ...styles.sidebarContainer,
+        userSelect: isResizing ? 'none' : 'auto',
+        cursor: isResizing ? 'row-resize' : 'auto'
+      }}
+    >
+      <div style={styles.content}>
+        <div style={styles.toolbar}>
+          <div style={{
+            ...styles.statusBadge,
+            backgroundColor: isTrackingEnabled ? '#f0fdf4' : '#fef2f2',
+            color: isTrackingEnabled ? '#16a34a' : '#dc2626',
+            borderColor: isTrackingEnabled ? '#bbf7d0' : '#fecaca'
+          }}>
+            {isTrackingEnabled ? '● TRACKING ACTIVE' : '○ TRACKING PAUSED'}
+          </div>
 
-        <h3>Traversal Logs:</h3>
-        <div style={styles.logWindow}>
-          {/* Map over the structured 'logs' prop */}
-          {logs.length > 0 ? (
-            logs.map((log) => (
-              // NOTE: Use a unique key for list items, assuming 'id' is unique
-              <p key={log.id} style={{ color: log.level === 'error' ? 'red' : log.level === 'warn' ? 'yellow' : '#0f0' }}>
-                [{log.timestamp}] {log.message}
-              </p>
-            ))
-          ) : (
-            // Displaying the original stub/placeholder text if the log array is empty
-            <>
-              {/* TODO: Bind this to your engine's event emitter to show HTTP requests in real-time */}
-              <p>GET http://solidbench-server.../card#me [200 OK]</p>
-              <p>Dereferencing snvoc:hasCreator...</p>
-              <p>Found 15 candidate links...</p>
-            </>
-          )}
+          <div style={styles.filterGroup}>
+            <label style={styles.filterLabel}>
+              <input 
+                type="checkbox" 
+                checked={showTraverse} 
+                onChange={(e) => setShowTraverse(e.target.checked)} 
+              />
+              Show Traverse
+            </label>
+            <label style={styles.filterLabel}>
+              <input 
+                type="checkbox" 
+                checked={showPlanning} 
+                onChange={(e) => setShowPlanning(e.target.checked)} 
+              />
+              Show Planning
+            </label>
+          </div>
         </div>
-        
-        <button onClick={onClose}>Close Inspector</button>
+
+        <section style={{ ...styles.querySection, height: queryHeight }}>
+          <h3 style={styles.sectionTitle}>SPARQL Query</h3>
+          <div style={styles.codeWrapper}>
+            <pre 
+                style={styles.codeBlock}
+                dangerouslySetInnerHTML={{ __html: highlightedQuery }} 
+            />
+          </div>
+        </section>
+
+        <div 
+          onMouseDown={startResizing}
+          style={{
+            ...styles.resizer,
+            backgroundColor: isResizing ? '#3b82f6' : 'transparent'
+          }}
+        >
+          <div style={styles.resizerHandle} />
+        </div>
+
+        <section style={styles.logSection}>
+          <h3 style={styles.sectionTitle}>Engine Logs ({filteredLogs.length})</h3>
+          <div style={styles.logWindow}>
+            {filteredLogs.length > 0 ? (
+                filteredLogs.map((log) => (
+                  <div key={log.id} style={styles.logLine}>
+                    <span style={styles.timestamp}>{log.timestamp}</span>
+                    <span style={{ 
+                        color: log.level === 'error' ? '#f87171' : log.level === 'warn' ? '#fbbf24' : '#e2e8f0',
+                        wordBreak: 'break-word'
+                    }}>
+                        {log.message}
+                    </span>
+                  </div>
+                ))
+            ) : (
+              <div style={styles.emptyLogs}>No logs match active filters...</div>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );
 };
 
-// Define the styles with explicit CSSProperties types for safety
 const styles: { [key: string]: CSSProperties } = {
-  overlay: { 
-    position: 'fixed', 
-    top: 0, 
-    left: 0, 
-    right: 0, 
-    bottom: 0, 
-    background: 'rgba(0,0,0,0.8)', 
-    display: 'flex', 
-    justifyContent: 'center', 
-    alignItems: 'center' 
-  },
-  modal: { 
-    background: 'white', 
-    padding: '20px', 
-    width: '80%', 
-    maxWidth: '800px', 
-    borderRadius: '8px' 
-  },
-  codeBlock: { 
-    background: '#f4f4f4', 
-    padding: '10px', 
-    overflowX: 'auto',
-    // Ensures text wrapping doesn't occur for long lines
-    whiteSpace: 'pre', 
-  },
-  logWindow: { 
-    height: '150px', 
-    overflowY: 'scroll', 
-    background: '#333', 
-    color: '#0f0', 
-    padding: '10px', 
-    fontFamily: 'monospace' 
-  }
+  sidebarContainer: { display: 'flex', flexDirection: 'column', height: '100%', width: '100%', background: '#ffffff', boxSizing: 'border-box', borderLeft: '1px solid #e2e8f0', overflow: 'hidden' },
+  toolbar: { display: 'flex', alignItems: 'center', gap: '1.5rem', marginBottom: '1rem', flexWrap: 'wrap' },
+  filterGroup: { display: 'flex', gap: '1rem', alignItems: 'center' },
+  filterLabel: { fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.025em' },
+  content: { padding: '1rem', display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' },
+  statusBadge: { padding: '6px 10px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 800, border: '1px solid', letterSpacing: '0.05em', width: 'fit-content', flexShrink: 0 },
+  querySection: { display: 'flex', flexDirection: 'column', gap: '0.5rem', flexShrink: 0, overflow: 'hidden' },
+  resizer: { height: '12px', margin: '4px 0', cursor: 'row-resize', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background-color 0.2s', borderRadius: '4px', flexShrink: 0 },
+  resizerHandle: { width: '30px', height: '4px', borderRadius: '2px', background: '#e2e8f0' },
+  logSection: { display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1, minHeight: 0 },
+  sectionTitle: { margin: 0, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.075em', color: '#94a3b8', fontWeight: 700 },
+  codeWrapper: { background: '#1e293b', borderRadius: '6px', padding: '16px', border: '1px solid #0f172a', height: '100%', overflowY: 'auto' },
+  codeBlock: { color: '#cbd5e1', fontSize: '0.85rem', margin: 0, fontFamily: '"Fira Code", monospace', lineHeight: '1.7', whiteSpace: 'pre-wrap', overflowWrap: 'break-word', wordBreak: 'normal', paddingLeft: '1.5rem', textIndent: '-1.5rem' },
+  logWindow: { flex: 1, background: '#0f172a', color: '#94a3b8', padding: '12px', borderRadius: '6px', fontFamily: '"JetBrains Mono", monospace', fontSize: '0.75rem', overflowY: 'auto' },
+  logLine: { margin: '6px 0', display: 'flex', gap: '12px', borderBottom: '1px solid #1e293b', paddingBottom: '4px' },
+  timestamp: { color: '#475569', fontSize: '0.6rem', flexShrink: 0, fontFamily: 'monospace' },
+  emptyLogs: { opacity: 0.5, fontStyle: 'italic', padding: '20px', textAlign: 'center', fontSize: '0.8rem', color: '#94a3b8' }
 };
 
 export default QueryDebugger;

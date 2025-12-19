@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { executeTraversalQuery } from '../api/queryEngineStub.js';
+import { executeTraversalQuery, ReactTraversalLogger } from '../api/queryEngineStub.js';
 import { useAuth } from '../context/AuthContext.js';
 import type { BindingsStream } from '@comunica/types';
 import '../index.css'; 
@@ -19,6 +19,7 @@ interface UserProfile {
 
 interface ProfileProps {
   setDebugQuery: (query: string) => void;
+  logger: ReactTraversalLogger | undefined;
 }
 
 
@@ -66,7 +67,7 @@ const processProfileBinding = (binding: any, prev: UserProfile | null): UserProf
   return { ...prev, interests: updatedInterests, email: updatedEmails };
 };
 
-export const UserProfileDetail: React.FC<ProfileProps> = ({ setDebugQuery }) => {
+export const UserProfileDetail: React.FC<ProfileProps> = ({ setDebugQuery, logger }) => {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
   const navigate = useNavigate();
@@ -116,7 +117,7 @@ export const UserProfileDetail: React.FC<ProfileProps> = ({ setDebugQuery }) => 
       setDebugQuery(infoQuery);
 
       try {
-        const bs: BindingsStream = await executeTraversalQuery(infoQuery, {}, 2);
+        const bs: BindingsStream = await executeTraversalQuery(infoQuery, {log: logger }, 2);
         activeStream.current = bs;
         bs.on('data', (binding) => {
           setProfileData(prev => processProfileBinding(binding, prev));
