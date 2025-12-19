@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { executeTraversalQuery, ReactTraversalLogger } from '../api/queryEngineStub.js';
 import type { BindingsStream } from '@comunica/types';
+import { StatisticTraversalTopology } from '@rubeneschauzier/statistic-traversal-topology';
 
 // --- Props Interface ---
 interface ForumProps {
@@ -100,7 +101,16 @@ export const ForumDetail: React.FC<ForumProps> = ({ setDebugQuery, logger }) => 
           }
           setLoading(false);
         })
-        const bsMessages: BindingsStream = await executeTraversalQuery(queryMessages, {log: logger }, 2);
+        
+        const tracker = new StatisticTraversalTopology();
+        tracker.on((data) => {
+          // You can log or display the topology data as needed
+          console.log('Topology Data:', data);
+          // This data is the full topology stats, so no diffs. I want to add a wrapper
+          // that calculates the diffs, but I can do that myself I just want to wire it up so I can access the data in 
+          // the debug query panel
+        })
+        const bsMessages: BindingsStream = await executeTraversalQuery(queryMessages, {log: logger, [tracker.key.name]: tracker }, 2);
         activeStream.current = bsMessages;
 
         bsMessages.on('data', (binding) => {

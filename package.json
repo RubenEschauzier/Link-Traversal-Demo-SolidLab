@@ -15,6 +15,7 @@
   "dependencies": {
     "@rubeneschauzier/query-sparql-link-traversal-solid-limit-depth-2": "^0.7.0",
     "@rubeneschauzier/query-sparql-link-traversal-solid-limit-depth-3": "^0.7.0",
+    "@rubeneschauzier/statistic-traversal-topology": "^0.7.0",
     "@comunica/query-sparql-link-traversal-solid": "^0.7.0",
     "@comunica/types": "^4.5.0",
     "react": "^19.2.3",
