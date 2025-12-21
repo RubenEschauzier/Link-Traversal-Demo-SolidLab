@@ -45,11 +45,10 @@ export class ReactTraversalLogger extends Logger {
      
 
   private log(level: 'trace'|'debug'| 'info' | 'warn' | 'error' | 'fatal', message: string, data?: any) {
-    console.log(`[${level.toUpperCase()}] ${message}`, data || '');
     this.onLogCallback({
       id: Date.now() + Math.random(),
       timestamp: new Date().toLocaleTimeString(),
-      message: data ? `${message} ${JSON.stringify(data)}` : message,
+      message: message,
       level
     });
   }

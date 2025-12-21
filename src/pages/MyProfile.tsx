@@ -4,6 +4,8 @@ import { executeTraversalQuery, ReactTraversalLogger } from '../api/queryEngineS
 import { useAuth } from '../context/AuthContext.js';
 import type { BindingsStream } from '@comunica/types';
 import '../index.css'; 
+import type { StatisticLinkDiscovery } from '@comunica/statistic-link-discovery';
+import type { StatisticLinkDereference } from '@comunica/statistic-link-dereference';
 
 // --- Data Interfaces ---
 interface UserProfile {
@@ -36,6 +38,10 @@ interface Friend {
 interface ProfileProps {
   setDebugQuery: (query: string) => void;
   logger: ReactTraversalLogger | undefined;
+  createTracker: () => {
+    trackerDiscovery: StatisticLinkDiscovery;
+    trackerDereference: StatisticLinkDereference;
+  } | null;
 }
 
 // --- SPARQL Queries ---
@@ -126,7 +132,7 @@ const processProfileBinding = (binding: any, prev: UserProfile | null): UserProf
   return { ...prev, interests: updatedInterests, email: updatedEmails };
 };
 
-export const Profile: React.FC<ProfileProps> = ({ setDebugQuery, logger }) => {
+export const Profile: React.FC<ProfileProps> = ({ setDebugQuery, logger, createTracker }) => {
   const activeStream = useRef<BindingsStream | null>(null);
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -172,7 +178,17 @@ export const Profile: React.FC<ProfileProps> = ({ setDebugQuery, logger }) => {
     setDebugQuery(infoQuery);
     
     try {
-      const bs = await executeTraversalQuery(infoQuery, {log: logger }, 2);
+      const trackers = createTracker();
+      let context = {log: logger};
+      if (trackers){
+        context = {
+          ...context, 
+          [trackers.trackerDiscovery.key.name]: trackers.trackerDiscovery,
+          [trackers.trackerDereference.key.name]: trackers.trackerDereference,
+        };
+      }
+
+      const bs = await executeTraversalQuery(infoQuery, context, 2);
       activeStream.current = bs;
 
       bs.on('data', (binding: any) => {
@@ -197,7 +213,16 @@ export const Profile: React.FC<ProfileProps> = ({ setDebugQuery, logger }) => {
     setDebugQuery(forumsQuery + "\n\n" + QUERY_MEMBER_COUNT);
 
     try {
-      const bs = await executeTraversalQuery(forumsQuery, {log: logger }, undefined);
+      const trackers = createTracker();
+      let context = {log: logger};
+      if (trackers){
+        context = {
+          ...context, 
+          [trackers.trackerDiscovery.key.name]: trackers.trackerDiscovery,
+          [trackers.trackerDereference.key.name]: trackers.trackerDereference,
+        };
+      }
+      const bs = await executeTraversalQuery(forumsQuery, context, undefined);
       activeStream.current = bs;
 
       bs.on('data', (binding: any) => {
@@ -242,7 +267,16 @@ export const Profile: React.FC<ProfileProps> = ({ setDebugQuery, logger }) => {
     setDebugQuery(friendsQuery);
 
     try {
-      const bs = await executeTraversalQuery(friendsQuery, {log: logger }, 2);
+      const trackers = createTracker();
+      let context = {log: logger};
+      if (trackers){
+        context = {
+          ...context, 
+          [trackers.trackerDiscovery.key.name]: trackers.trackerDiscovery,
+          [trackers.trackerDereference.key.name]: trackers.trackerDereference,
+        };
+      }
+      const bs = await executeTraversalQuery(friendsQuery, context, 2);
       activeStream.current = bs;
 
       bs.on('data', (binding: any) => {

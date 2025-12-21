@@ -3,11 +3,17 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { executeTraversalQuery, ReactTraversalLogger } from '../api/queryEngineStub.js';
 import type { BindingsStream } from '@comunica/types';
 import { StatisticTraversalTopology } from '@rubeneschauzier/statistic-traversal-topology';
+import type { StatisticLinkDiscovery } from '@comunica/statistic-link-discovery';
+import type { StatisticLinkDereference } from '@comunica/statistic-link-dereference';
 
 // --- Props Interface ---
 interface ForumProps {
   setDebugQuery: (query: string) => void;
   logger: ReactTraversalLogger | undefined;
+  createTracker: () => {
+    trackerDiscovery: StatisticLinkDiscovery;
+    trackerDereference: StatisticLinkDereference;
+  } | null;
 }
 
 interface Message {
@@ -24,7 +30,7 @@ interface Author {
     uri: string;
 }
 
-export const ForumDetail: React.FC<ForumProps> = ({ setDebugQuery, logger }) => {
+export const ForumDetail: React.FC<ForumProps> = ({ setDebugQuery, logger, createTracker }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const forumUri = location.state?.forumUri;
@@ -38,27 +44,6 @@ export const ForumDetail: React.FC<ForumProps> = ({ setDebugQuery, logger }) => 
   useEffect(() => {
     const fetchForumData = async () => {
       if (!forumUri) return;
-
-      const query = `
-        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-        PREFIX snvoc: <https://solidbench.linkeddatafragments.org/www.ldbc.eu/ldbc_socialnet/1.0/vocabulary/>
-        SELECT ?title ?fName ?lName ?mod ?content ?file ?msg ?date ?person ?authorName ?authorLastName WHERE {
-          <${forumUri}> rdf:type snvoc:Forum;
-                   snvoc:title ?title.
-          OPTIONAL {
-            <${forumUri}> snvoc:hasModerator ?mod.
-            ?mod snvoc:firstName ?fName;
-                 snvoc:lastName ?lName.
-          }
-          <${forumUri}> snvoc:containerOf ?msg.
-          { ?msg snvoc:content ?content }
-          UNION
-          { ?msg snvoc:imageFile ?file }
-          ?msg snvoc:creationDate ?date.
-          ?msg snvoc:hasCreator ?person.
-          ?person snvoc:firstName ?authorName;
-                  snvoc:lastName ?authorLastName.
-        }`;
 
       const queryModerator = `
         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
@@ -101,21 +86,19 @@ export const ForumDetail: React.FC<ForumProps> = ({ setDebugQuery, logger }) => 
           }
           setLoading(false);
         })
-        
-        const tracker = new StatisticTraversalTopology();
-        tracker.on((data) => {
-          // You can log or display the topology data as needed
-          console.log('Topology Data:', data);
-          // This data is the full topology stats, so no diffs. I want to add a wrapper
-          // that calculates the diffs, but I can do that myself I just want to wire it up so I can access the data in 
-          // the debug query panel
-        })
-        const bsMessages: BindingsStream = await executeTraversalQuery(queryMessages, {log: logger, [tracker.key.name]: tracker }, 2);
+        const trackers = createTracker();
+        let context = {log: logger};
+        if (trackers){
+          context = {
+            ...context, 
+            [trackers.trackerDiscovery.key.name]: trackers.trackerDiscovery,
+            [trackers.trackerDereference.key.name]: trackers.trackerDereference,
+          };
+        }
+        const bsMessages: BindingsStream = await executeTraversalQuery(queryMessages, context, 2);
         activeStream.current = bsMessages;
 
         bsMessages.on('data', (binding) => {
-          
-
           const msgUri = binding.get('msg').value;
           const content = binding.has('content') ? binding.get('content').value : '';
           const file = binding.has('file') ? binding.get('file').value : '';

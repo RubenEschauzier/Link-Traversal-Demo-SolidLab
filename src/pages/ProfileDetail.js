@@ -43,7 +43,7 @@ const processProfileBinding = (binding, prev) => {
     const updatedEmails = prev.email.includes(email) ? prev.email : `${prev.email}, ${email}`;
     return { ...prev, interests: updatedInterests, email: updatedEmails };
 };
-export const UserProfileDetail = ({ setDebugQuery, logger }) => {
+export const UserProfileDetail = ({ setDebugQuery, logger, createTracker }) => {
     const { id } = useParams();
     const location = useLocation();
     const navigate = useNavigate();
@@ -64,20 +64,6 @@ export const UserProfileDetail = ({ setDebugQuery, logger }) => {
             setIsLoading(true);
             stopQuery();
             let targetUri = location.state?.personUri;
-            //   // Step 1: Discovery Phase (If URI wasn't passed via state)
-            //   if (!targetUri) {
-            //     const findQuery = QUERY_FIND_PERSON_BY_ID.replace('TEMPLATE:ID', id);
-            //     try {
-            //       const bs: BindingsStream = await executeTraversalQuery(findQuery, {}, 2);
-            //       await new Promise<void>((resolve) => {
-            //         bs.on('data', (binding) => {
-            //           targetUri = binding.get('person').value;
-            //           resolve();
-            //         });
-            //         bs.on('end', resolve);
-            //       });
-            //     } catch (e) { console.error("Discovery failed", e); }
-            //   }
             if (!targetUri) {
                 setIsLoading(false);
                 return;
@@ -85,8 +71,17 @@ export const UserProfileDetail = ({ setDebugQuery, logger }) => {
             // Step 2: Data Retrieval Phase
             const infoQuery = QUERY_PERSON_INFO.replace('TEMPLATE:URI', targetUri);
             setDebugQuery(infoQuery);
+            const trackers = createTracker();
             try {
-                const bs = await executeTraversalQuery(infoQuery, { log: logger }, 2);
+                let context = { log: logger };
+                if (trackers) {
+                    context = {
+                        ...context,
+                        [trackers.trackerDiscovery.key.name]: trackers.trackerDiscovery,
+                        [trackers.trackerDereference.key.name]: trackers.trackerDereference,
+                    };
+                }
+                const bs = await executeTraversalQuery(infoQuery, context, 2);
                 activeStream.current = bs;
                 bs.on('data', (binding) => {
                     setProfileData(prev => processProfileBinding(binding, prev));

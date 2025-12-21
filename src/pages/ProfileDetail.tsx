@@ -4,6 +4,8 @@ import { executeTraversalQuery, ReactTraversalLogger } from '../api/queryEngineS
 import { useAuth } from '../context/AuthContext.js';
 import type { BindingsStream } from '@comunica/types';
 import '../index.css'; 
+import type { StatisticLinkDiscovery } from '@comunica/statistic-link-discovery';
+import type { StatisticLinkDereference } from '@comunica/statistic-link-dereference';
 
 interface UserProfile {
   name: string;
@@ -20,6 +22,10 @@ interface UserProfile {
 interface ProfileProps {
   setDebugQuery: (query: string) => void;
   logger: ReactTraversalLogger | undefined;
+  createTracker: () => {
+    trackerDiscovery: StatisticLinkDiscovery;
+    trackerDereference: StatisticLinkDereference;
+  } | null;
 }
 
 
@@ -67,7 +73,7 @@ const processProfileBinding = (binding: any, prev: UserProfile | null): UserProf
   return { ...prev, interests: updatedInterests, email: updatedEmails };
 };
 
-export const UserProfileDetail: React.FC<ProfileProps> = ({ setDebugQuery, logger }) => {
+export const UserProfileDetail: React.FC<ProfileProps> = ({ setDebugQuery, logger, createTracker }) => {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
   const navigate = useNavigate();
@@ -92,21 +98,6 @@ export const UserProfileDetail: React.FC<ProfileProps> = ({ setDebugQuery, logge
 
       let targetUri = location.state?.personUri;
 
-    //   // Step 1: Discovery Phase (If URI wasn't passed via state)
-    //   if (!targetUri) {
-    //     const findQuery = QUERY_FIND_PERSON_BY_ID.replace('TEMPLATE:ID', id);
-    //     try {
-    //       const bs: BindingsStream = await executeTraversalQuery(findQuery, {}, 2);
-    //       await new Promise<void>((resolve) => {
-    //         bs.on('data', (binding) => {
-    //           targetUri = binding.get('person').value;
-    //           resolve();
-    //         });
-    //         bs.on('end', resolve);
-    //       });
-    //     } catch (e) { console.error("Discovery failed", e); }
-    //   }
-
       if (!targetUri) {
         setIsLoading(false);
         return;
@@ -115,9 +106,17 @@ export const UserProfileDetail: React.FC<ProfileProps> = ({ setDebugQuery, logge
       // Step 2: Data Retrieval Phase
       const infoQuery = QUERY_PERSON_INFO.replace('TEMPLATE:URI', targetUri);
       setDebugQuery(infoQuery);
-
+      const trackers = createTracker();
       try {
-        const bs: BindingsStream = await executeTraversalQuery(infoQuery, {log: logger }, 2);
+        let context = {log: logger};
+        if (trackers){
+          context = {
+            ...context, 
+            [trackers.trackerDiscovery.key.name]: trackers.trackerDiscovery,
+            [trackers.trackerDereference.key.name]: trackers.trackerDereference,
+          };
+        }
+        const bs: BindingsStream = await executeTraversalQuery(infoQuery, context, 2);
         activeStream.current = bs;
         bs.on('data', (binding) => {
           setProfileData(prev => processProfileBinding(binding, prev));

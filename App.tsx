@@ -8,6 +8,8 @@ import { UserProfileDetail } from './src/pages/ProfileDetail.js';
 import QueryDebugger from './src/components/QueryDebugger.js';
 import { AuthProvider, useAuth } from './src/context/AuthContext.js';
 import { ReactTraversalLogger, type LogEntry } from './src/api/queryEngineStub.js';
+import { StatisticLinkDiscovery } from '@comunica/statistic-link-discovery';
+import { StatisticLinkDereference } from '@comunica/statistic-link-dereference';
 
 
 
@@ -50,6 +52,7 @@ const UserStatus: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  // If more info on traversal execution is being shown
   const [isDebugOpen, setDebugOpen] = useState<boolean>(() => {
     const saved = localStorage.getItem('solidlab_debug_sidebar_open');
     return saved !== null ? JSON.parse(saved) : false; // Default to false
@@ -58,18 +61,17 @@ const App: React.FC = () => {
     localStorage.setItem('solidlab_debug_sidebar_open', JSON.stringify(isDebugOpen));
   }, [isDebugOpen]);
 
+  // Sets current query for extended info panel
   const [currentQuery, setCurrentQuery] = useState<string>("No query executed yet.");
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  // Performance Toggle State
+  // If logging and topology tracking is enabled for a given query
   const [isTrackingEnabled, setIsTrackingEnabled] = useState<boolean>(() => {
     const saved = localStorage.getItem('solidlab_tracking_enabled');
-    // If 'false' is stored, return false; otherwise default to true
     return saved !== null ? JSON.parse(saved) : true;
   });
   useEffect(() => {
     localStorage.setItem('solidlab_tracking_enabled', JSON.stringify(isTrackingEnabled));
   }, [isTrackingEnabled]);
-
   const isTrackingRef = useRef(isTrackingEnabled);
 
   useEffect(() => {
@@ -95,9 +97,70 @@ const App: React.FC = () => {
 
   // Wrapped setter: only updates state if tracking is on
   const handleSetQuery = useCallback((query: string) => {
+    setTopology(null);
     setCurrentQuery(query);
     setLogs([]);
   }, []);
+  // 1. Add topology state
+  const [topology, setTopology] = useState<any>(null);
+
+// 1. Define Scale Limits
+  const MIN_BATCH = 10;   // Start snappy
+  const MAX_BATCH = 1000;  // Cap latency at high loads
+  const SCALING_FACTOR = 25; // Increase batch size by 1 for every 50 nodes
+  const FLUSH_TIMEOUT = 500; 
+
+  const createTopologyTracker = useCallback(() => {
+    if (!isTrackingEnabled) return null;
+  
+    const trackerDiscovery = new StatisticLinkDiscovery();
+    const trackerDereference = new StatisticLinkDereference();
+    const tracker = new StatisticTraversalTopology(
+      trackerDiscovery, trackerDereference
+    );
+    
+    let eventBuffer = 0;
+    let lastData: any = null;
+    let flushTimer: NodeJS.Timeout | null = null;
+
+    const flush = () => {
+      if (lastData) {
+        setTopology(lastData);
+        eventBuffer = 0;
+        lastData = null;
+      }
+      if (flushTimer) clearTimeout(flushTimer);
+    };
+
+    tracker.on((data) => {
+      lastData = data;
+      eventBuffer++;
+
+      // 2. Calculate Dynamic Batch Size
+      // We check how many nodes exist to determine how "heavy" the render will be.
+      // O(N) check is negligible compared to React rendering cost.
+      const totalNodes = Object.keys(data.indexToNodeDict).length;
+      
+      // Formula: Start at 10, add 1 for every 50 nodes, cap at 200.
+      // 0 nodes -> batch 10
+      // 500 nodes -> batch 20
+      // 5000 nodes -> batch 110
+      const currentBatchTarget = Math.min(
+        MAX_BATCH, 
+        MIN_BATCH + Math.floor(totalNodes / SCALING_FACTOR)
+      );
+
+      // 3. Batch Strategy
+      if (eventBuffer >= currentBatchTarget) {
+        flush();
+      } else {
+        // Reset safety timer (debouncer)
+        if (flushTimer) clearTimeout(flushTimer);
+        flushTimer = setTimeout(flush, FLUSH_TIMEOUT);
+      }
+    });
+    return {trackerDiscovery, trackerDereference};
+  }, [isTrackingEnabled]);
 
   return (
     <AuthProvider>
@@ -167,9 +230,27 @@ const App: React.FC = () => {
             minWidth: isDebugOpen ? '300px' : '100%' // Prevents app from disappearing
           }}>
             <Routes>            
-              <Route path="/profile" element={<Profile setDebugQuery={handleSetQuery} logger={ isTrackingEnabled ? traversalLogger : undefined } />} />
-              <Route path="/forums/:id" element={<ForumDetail setDebugQuery={handleSetQuery} logger={isTrackingEnabled ? traversalLogger : undefined}/>} />
-              <Route path="/profiles/:id" element={<UserProfileDetail setDebugQuery={handleSetQuery} logger={isTrackingEnabled ? traversalLogger : undefined} />} />
+              <Route path="/profile" element={
+                <Profile
+                setDebugQuery={handleSetQuery}
+                logger={ isTrackingEnabled ? traversalLogger : undefined } 
+                createTracker={createTopologyTracker}
+                />} 
+                />
+              <Route path="/forums/:id" element={
+                <ForumDetail 
+                setDebugQuery={handleSetQuery} 
+                logger={isTrackingEnabled ? traversalLogger : undefined}
+                createTracker={createTopologyTracker}
+                />} 
+                />
+              <Route path="/profiles/:id" element={
+                <UserProfileDetail 
+                setDebugQuery={handleSetQuery} 
+                logger={isTrackingEnabled ? traversalLogger : undefined}
+                createTracker={createTopologyTracker}
+                />}
+                />
               <Route path="*" element={<div style={{ padding: '2rem' }}><h2>404</h2></div>} />
             </Routes>
           </main>
@@ -194,6 +275,7 @@ const App: React.FC = () => {
                 onClose={() => setDebugOpen(false)} 
                 currentQuery={currentQuery} 
                 isTrackingEnabled={isTrackingEnabled}
+                topology={topology}
                 logs={logs} 
               />
             </div>

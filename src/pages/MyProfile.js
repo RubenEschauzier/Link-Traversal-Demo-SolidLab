@@ -82,7 +82,7 @@ const processProfileBinding = (binding, prev) => {
         : `${prev.email}, ${email}`;
     return { ...prev, interests: updatedInterests, email: updatedEmails };
 };
-export const Profile = ({ setDebugQuery, logger }) => {
+export const Profile = ({ setDebugQuery, logger, createTracker }) => {
     const activeStream = useRef(null);
     const { user, isAuthenticated } = useAuth();
     const navigate = useNavigate();
@@ -115,7 +115,16 @@ export const Profile = ({ setDebugQuery, logger }) => {
         const infoQuery = QUERY_MY_INFO.replaceAll('TEMPLATE:ME', `<${user.username}>`);
         setDebugQuery(infoQuery);
         try {
-            const bs = await executeTraversalQuery(infoQuery, { log: logger }, 2);
+            const trackers = createTracker();
+            let context = { log: logger };
+            if (trackers) {
+                context = {
+                    ...context,
+                    [trackers.trackerDiscovery.key.name]: trackers.trackerDiscovery,
+                    [trackers.trackerDereference.key.name]: trackers.trackerDereference,
+                };
+            }
+            const bs = await executeTraversalQuery(infoQuery, context, 2);
             activeStream.current = bs;
             bs.on('data', (binding) => {
                 setProfileData(prev => processProfileBinding(binding, prev));
@@ -136,7 +145,16 @@ export const Profile = ({ setDebugQuery, logger }) => {
         const forumsQuery = QUERY_MY_FORUMS.replaceAll('TEMPLATE:ME', `<${user.username}>`);
         setDebugQuery(forumsQuery + "\n\n" + QUERY_MEMBER_COUNT);
         try {
-            const bs = await executeTraversalQuery(forumsQuery, { log: logger }, undefined);
+            const trackers = createTracker();
+            let context = { log: logger };
+            if (trackers) {
+                context = {
+                    ...context,
+                    [trackers.trackerDiscovery.key.name]: trackers.trackerDiscovery,
+                    [trackers.trackerDereference.key.name]: trackers.trackerDereference,
+                };
+            }
+            const bs = await executeTraversalQuery(forumsQuery, context, undefined);
             activeStream.current = bs;
             bs.on('data', (binding) => {
                 if (activeStream.current !== bs)
@@ -177,7 +195,16 @@ export const Profile = ({ setDebugQuery, logger }) => {
         const friendsQuery = QUERY_MY_FRIENDS.replaceAll('TEMPLATE:ME', `<${user.username}>`);
         setDebugQuery(friendsQuery);
         try {
-            const bs = await executeTraversalQuery(friendsQuery, { log: logger }, 2);
+            const trackers = createTracker();
+            let context = { log: logger };
+            if (trackers) {
+                context = {
+                    ...context,
+                    [trackers.trackerDiscovery.key.name]: trackers.trackerDiscovery,
+                    [trackers.trackerDereference.key.name]: trackers.trackerDereference,
+                };
+            }
+            const bs = await executeTraversalQuery(friendsQuery, context, 2);
             activeStream.current = bs;
             bs.on('data', (binding) => {
                 const friendUri = binding.get('friendProfile').value;

@@ -2,7 +2,8 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { executeTraversalQuery, ReactTraversalLogger } from '../api/queryEngineStub.js';
-export const ForumDetail = ({ setDebugQuery, logger }) => {
+import { StatisticTraversalTopology } from '@rubeneschauzier/statistic-traversal-topology';
+export const ForumDetail = ({ setDebugQuery, logger, createTracker }) => {
     const location = useLocation();
     const navigate = useNavigate();
     const forumUri = location.state?.forumUri;
@@ -15,26 +16,6 @@ export const ForumDetail = ({ setDebugQuery, logger }) => {
         const fetchForumData = async () => {
             if (!forumUri)
                 return;
-            const query = `
-        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-        PREFIX snvoc: <https://solidbench.linkeddatafragments.org/www.ldbc.eu/ldbc_socialnet/1.0/vocabulary/>
-        SELECT ?title ?fName ?lName ?mod ?content ?file ?msg ?date ?person ?authorName ?authorLastName WHERE {
-          <${forumUri}> rdf:type snvoc:Forum;
-                   snvoc:title ?title.
-          OPTIONAL {
-            <${forumUri}> snvoc:hasModerator ?mod.
-            ?mod snvoc:firstName ?fName;
-                 snvoc:lastName ?lName.
-          }
-          <${forumUri}> snvoc:containerOf ?msg.
-          { ?msg snvoc:content ?content }
-          UNION
-          { ?msg snvoc:imageFile ?file }
-          ?msg snvoc:creationDate ?date.
-          ?msg snvoc:hasCreator ?person.
-          ?person snvoc:firstName ?authorName;
-                  snvoc:lastName ?authorLastName.
-        }`;
             const queryModerator = `
         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
         PREFIX snvoc: <https://solidbench.linkeddatafragments.org/www.ldbc.eu/ldbc_socialnet/1.0/vocabulary/>
@@ -72,7 +53,16 @@ export const ForumDetail = ({ setDebugQuery, logger }) => {
                     }
                     setLoading(false);
                 });
-                const bsMessages = await executeTraversalQuery(queryMessages, { log: logger }, 2);
+                const trackers = createTracker();
+                let context = { log: logger };
+                if (trackers) {
+                    context = {
+                        ...context,
+                        [trackers.trackerDiscovery.key.name]: trackers.trackerDiscovery,
+                        [trackers.trackerDereference.key.name]: trackers.trackerDereference,
+                    };
+                }
+                const bsMessages = await executeTraversalQuery(queryMessages, context, 2);
                 activeStream.current = bsMessages;
                 bsMessages.on('data', (binding) => {
                     const msgUri = binding.get('msg').value;
