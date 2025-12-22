@@ -85,7 +85,11 @@ const QueryDebugger = ({ isOpen, onClose, currentQuery, logs, topology, isTracki
                     // KEY CHANGE: Combining query + reset key ensures:
                     // 1. Reset when query changes
                     // 2. Reset when tab is toggled or clicked again
-                    , { data: topology.data, update: topology.update }, `${currentQuery}-${graphResetKey}`) })) : (
+                    , { 
+                        // KEY CHANGE: Combining query + reset key ensures:
+                        // 1. Reset when query changes
+                        // 2. Reset when tab is toggled or clicked again
+                        data: topology.data, update: topology.update }, `${currentQuery}-${graphResetKey}`) })) : (
                 // STANDARD DEBUG MODE (Stats + Query + Logs)
                 _jsxs(_Fragment, { children: [_jsxs("section", { style: { ...styles.querySection, height: queryHeight }, children: [_jsx("h3", { style: styles.sectionTitle, children: "SPARQL Query" }), _jsx("div", { style: styles.codeWrapper, children: _jsx("pre", { style: styles.codeBlock, dangerouslySetInnerHTML: { __html: highlightedQuery } }) })] }), _jsx("div", { onMouseDown: startResizing, style: { ...styles.resizer, backgroundColor: isResizing ? '#3b82f6' : 'transparent' }, children: _jsx("div", { style: styles.resizerHandle }) }), _jsxs("section", { style: styles.logSection, children: [_jsxs("h3", { style: styles.sectionTitle, children: ["Engine Logs (", filteredLogs.length, ")"] }), _jsx("div", { style: styles.logWindow, children: filteredLogs.length > 0 ? (filteredLogs.map((log) => (_jsxs("div", { style: styles.logLine, children: [_jsx("span", { style: styles.timestamp, children: log.timestamp }), _jsx("span", { style: { color: log.level === 'error' ? '#f87171' : log.level === 'warn' ? '#fbbf24' : '#e2e8f0', wordBreak: 'break-word' }, children: log.message })] }, log.id)))) : (_jsx("div", { style: styles.emptyLogs, children: "No logs match active filters..." })) })] })] }))] }) }));
 };

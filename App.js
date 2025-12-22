@@ -70,6 +70,7 @@ const App = () => {
     const SCALING_FACTOR = 25; // Increase batch size by 1 for every 50 nodes
     const FLUSH_TIMEOUT = 500;
     const createTopologyTracker = useCallback(() => {
+        setTopology({ data: null, update: false });
         if (!isTrackingEnabled)
             return null;
         const trackerDiscovery = new StatisticLinkDiscovery();

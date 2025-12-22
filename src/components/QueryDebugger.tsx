@@ -162,6 +162,7 @@ const QueryDebugger: React.FC<QueryDebuggerProps> = ({
                 // 2. Reset when tab is toggled or clicked again
                 data={topology.data as any} 
                 update={topology.update}
+                key={`${currentQuery}-${graphResetKey}`}
             />
           </div>
         ) : (

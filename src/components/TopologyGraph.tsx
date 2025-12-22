@@ -43,6 +43,7 @@ const TopologyGraph: React.FC<GraphProps> = ({ data, update }) => {
 
   // 1. Initialize Cytoscape (Runs Once)
   useEffect(() => {
+    
     if (!containerRef.current) return;
 
     const cy = cytoscape({
@@ -173,8 +174,8 @@ const TopologyGraph: React.FC<GraphProps> = ({ data, update }) => {
 
     // When the graph has been truncated and fully finalized, stop updates
     if (layoutFinalizedTruncated.current === true && update){
-      runSpaciousLayout(cy, false);
-      layoutHasRun.current = true;
+      // runSpaciousLayout(cy, false);
+      // layoutHasRun.current = true;
       return;
     }
     
@@ -399,7 +400,7 @@ const runSpaciousLayout = (cy: cytoscape.Core, shouldFit: boolean) => {
     nodeOverlap: 50,
     componentSpacing: 100,   
     nestingFactor: 1.2,
-    numIter: 500,
+    numIter: 1000,
     initialTemp: 1000,
     coolingFactor: 0.99,
     minTemp: 1.0,

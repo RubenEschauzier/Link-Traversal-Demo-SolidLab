@@ -145,8 +145,8 @@ const TopologyGraph = ({ data, update }) => {
             return;
         // When the graph has been truncated and fully finalized, stop updates
         if (layoutFinalizedTruncated.current === true && update) {
-            runSpaciousLayout(cy, false);
-            layoutHasRun.current = true;
+            // runSpaciousLayout(cy, false);
+            // layoutHasRun.current = true;
             return;
         }
         const truncationLimit = 100;
@@ -161,6 +161,7 @@ const TopologyGraph = ({ data, update }) => {
             const fullDereferencedSet = new Set(data.dereferenceOrder);
             // 2. Create Graph based on logic
             const { fullyDereferenced, full } = createTruncatedGraph(data, safeSet, fullDereferencedSet, maxFrontierNodes, cy);
+            console.log(`Full from graph: ${full}`);
             frontierFull = full;
             // If we are truncating and hit the frontier limit, lock existing nodes
             // to prevents layout jitter as new frontier nodes might pop in/out
@@ -213,6 +214,7 @@ const TopologyGraph = ({ data, update }) => {
             layoutHasRun.current = true;
             // When all nodes that will be rendered exist, just lock them
             // but still allow updates to node states
+            console.log(`frontier full: ${frontierFull}`);
             if (frontierFull) {
                 const existingNodes = cy.nodes();
                 existingNodes.lock();
@@ -330,7 +332,7 @@ const runSpaciousLayout = (cy, shouldFit) => {
         nodeOverlap: 50,
         componentSpacing: 100,
         nestingFactor: 1.2,
-        numIter: 500,
+        numIter: 1000,
         initialTemp: 1000,
         coolingFactor: 0.99,
         minTemp: 1.0,
