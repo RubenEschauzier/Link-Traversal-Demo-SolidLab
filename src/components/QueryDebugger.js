@@ -1,6 +1,7 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import TopologyGraph from './TopologyGraph.js';
+// ... (formatQuery helper remains the same) ...
 const formatQuery = (query) => {
     if (!query)
         return '';
@@ -24,12 +25,13 @@ const QueryDebugger = ({ isOpen, onClose, currentQuery, logs, topology, isTracki
     const containerRef = useRef(null);
     const [queryHeight, setQueryHeight] = useState(220);
     const [isResizing, setIsResizing] = useState(false);
+    // Force graph reset when clicking the tab again
+    const [graphResetKey, setGraphResetKey] = useState(0);
     // 1. PERSISTENCE: Initialize viewMode from LocalStorage
     const [viewMode, setViewMode] = useState(() => {
         const saved = localStorage.getItem('debugger_view_mode');
         return saved === 'graph' ? 'graph' : 'stats';
     });
-    // 2. PERSISTENCE: Save viewMode on change
     useEffect(() => {
         localStorage.setItem('debugger_view_mode', viewMode);
     }, [viewMode]);
@@ -70,14 +72,24 @@ const QueryDebugger = ({ isOpen, onClose, currentQuery, logs, topology, isTracki
         };
     }, [isResizing, resize, stopResizing]);
     const highlightedQuery = useMemo(() => formatQuery(currentQuery), [currentQuery]);
+    const handleGraphTabClick = () => {
+        setViewMode('graph');
+        // Increment reset key to force redraw even if already on graph view
+        setGraphResetKey(prev => prev + 1);
+    };
     if (!isOpen)
         return null;
-    return (_jsx("div", { ref: containerRef, style: { ...styles.sidebarContainer, userSelect: isResizing ? 'none' : 'auto', cursor: isResizing ? 'row-resize' : 'auto' }, children: _jsxs("div", { style: styles.content, children: [_jsxs("div", { style: styles.toolbar, children: [_jsx("div", { style: { ...styles.statusBadge, backgroundColor: isTrackingEnabled ? '#f0fdf4' : '#fef2f2', color: isTrackingEnabled ? '#16a34a' : '#dc2626', borderColor: isTrackingEnabled ? '#bbf7d0' : '#fecaca' }, children: isTrackingEnabled ? '● TRACKING ACTIVE' : '○ TRACKING PAUSED' }), _jsxs("div", { style: styles.filterGroup, children: [_jsxs("label", { style: styles.filterLabel, children: [_jsx("input", { type: "checkbox", checked: showTraverse, onChange: (e) => setShowTraverse(e.target.checked) }), " Traverse"] }), _jsxs("label", { style: styles.filterLabel, children: [_jsx("input", { type: "checkbox", checked: showPlanning, onChange: (e) => setShowPlanning(e.target.checked) }), " Planning"] })] })] }), topology && (_jsxs("div", { style: styles.viewToggle, children: [_jsx("button", { onClick: () => setViewMode('stats'), style: viewMode === 'stats' ? styles.activeTab : styles.tab, title: "Show Logs and Query", children: "\uD83D\uDCDD Query & Logs" }), _jsx("button", { onClick: () => setViewMode('graph'), style: viewMode === 'graph' ? styles.activeTab : styles.tab, title: "Show Full Screen Topology", children: "\uD83D\uDD78\uFE0F Topology Graph" })] })), viewMode === 'graph' && topology ? (
+    return (_jsx("div", { ref: containerRef, style: { ...styles.sidebarContainer, userSelect: isResizing ? 'none' : 'auto', cursor: isResizing ? 'row-resize' : 'auto' }, children: _jsxs("div", { style: styles.content, children: [_jsxs("div", { style: styles.toolbar, children: [_jsx("div", { style: { ...styles.statusBadge, backgroundColor: isTrackingEnabled ? '#f0fdf4' : '#fef2f2', color: isTrackingEnabled ? '#16a34a' : '#dc2626', borderColor: isTrackingEnabled ? '#bbf7d0' : '#fecaca' }, children: isTrackingEnabled ? '● TRACKING ACTIVE' : '○ TRACKING PAUSED' }), _jsxs("div", { style: styles.filterGroup, children: [_jsxs("label", { style: styles.filterLabel, children: [_jsx("input", { type: "checkbox", checked: showTraverse, onChange: (e) => setShowTraverse(e.target.checked) }), " Traverse"] }), _jsxs("label", { style: styles.filterLabel, children: [_jsx("input", { type: "checkbox", checked: showPlanning, onChange: (e) => setShowPlanning(e.target.checked) }), " Planning"] })] })] }), topology && (_jsxs("div", { style: styles.viewToggle, children: [_jsx("button", { onClick: () => setViewMode('stats'), style: viewMode === 'stats' ? styles.activeTab : styles.tab, title: "Show Logs and Query", children: "\uD83D\uDCDD Query & Logs" }), _jsx("button", { onClick: handleGraphTabClick, style: viewMode === 'graph' ? styles.activeTab : styles.tab, title: "Show Full Screen Topology (Click to Reset)", children: "\uD83D\uDD78\uFE0F Topology Graph" })] })), viewMode === 'graph' && topology ? (
                 // FULL HEIGHT GRAPH MODE
-                _jsx("div", { style: styles.fullGraphContainer, children: _jsx(TopologyGraph, { data: topology }) })) : (
+                _jsx("div", { style: styles.fullGraphContainer, children: _jsx(TopologyGraph
+                    // KEY CHANGE: Combining query + reset key ensures:
+                    // 1. Reset when query changes
+                    // 2. Reset when tab is toggled or clicked again
+                    , { data: topology.data, update: topology.update }, `${currentQuery}-${graphResetKey}`) })) : (
                 // STANDARD DEBUG MODE (Stats + Query + Logs)
-                _jsxs(_Fragment, { children: [topology && (_jsxs("div", { style: styles.topologyDashboard, children: [_jsxs("div", { style: styles.statBox, children: [_jsx("span", { style: styles.statLabel, children: "Sources" }), _jsx("span", { style: styles.statValue, children: topology.totalSources || 0 })] }), _jsxs("div", { style: styles.statBox, children: [_jsx("span", { style: styles.statLabel, children: "Requests" }), _jsx("span", { style: styles.statValue, children: topology.totalRequests || 0 })] }), _jsxs("div", { style: styles.statBox, children: [_jsx("span", { style: styles.statLabel, children: "Active" }), _jsx("span", { style: { ...styles.statValue, color: (topology.activeRequests || 0) > 0 ? '#3b82f6' : '#94a3b8' }, children: topology.activeRequests || 0 })] })] })), _jsxs("section", { style: { ...styles.querySection, height: queryHeight }, children: [_jsx("h3", { style: styles.sectionTitle, children: "SPARQL Query" }), _jsx("div", { style: styles.codeWrapper, children: _jsx("pre", { style: styles.codeBlock, dangerouslySetInnerHTML: { __html: highlightedQuery } }) })] }), _jsx("div", { onMouseDown: startResizing, style: { ...styles.resizer, backgroundColor: isResizing ? '#3b82f6' : 'transparent' }, children: _jsx("div", { style: styles.resizerHandle }) }), _jsxs("section", { style: styles.logSection, children: [_jsxs("h3", { style: styles.sectionTitle, children: ["Engine Logs (", filteredLogs.length, ")"] }), _jsx("div", { style: styles.logWindow, children: filteredLogs.length > 0 ? (filteredLogs.map((log) => (_jsxs("div", { style: styles.logLine, children: [_jsx("span", { style: styles.timestamp, children: log.timestamp }), _jsx("span", { style: { color: log.level === 'error' ? '#f87171' : log.level === 'warn' ? '#fbbf24' : '#e2e8f0', wordBreak: 'break-word' }, children: log.message })] }, log.id)))) : (_jsx("div", { style: styles.emptyLogs, children: "No logs match active filters..." })) })] })] }))] }) }));
+                _jsxs(_Fragment, { children: [_jsxs("section", { style: { ...styles.querySection, height: queryHeight }, children: [_jsx("h3", { style: styles.sectionTitle, children: "SPARQL Query" }), _jsx("div", { style: styles.codeWrapper, children: _jsx("pre", { style: styles.codeBlock, dangerouslySetInnerHTML: { __html: highlightedQuery } }) })] }), _jsx("div", { onMouseDown: startResizing, style: { ...styles.resizer, backgroundColor: isResizing ? '#3b82f6' : 'transparent' }, children: _jsx("div", { style: styles.resizerHandle }) }), _jsxs("section", { style: styles.logSection, children: [_jsxs("h3", { style: styles.sectionTitle, children: ["Engine Logs (", filteredLogs.length, ")"] }), _jsx("div", { style: styles.logWindow, children: filteredLogs.length > 0 ? (filteredLogs.map((log) => (_jsxs("div", { style: styles.logLine, children: [_jsx("span", { style: styles.timestamp, children: log.timestamp }), _jsx("span", { style: { color: log.level === 'error' ? '#f87171' : log.level === 'warn' ? '#fbbf24' : '#e2e8f0', wordBreak: 'break-word' }, children: log.message })] }, log.id)))) : (_jsx("div", { style: styles.emptyLogs, children: "No logs match active filters..." })) })] })] }))] }) }));
 };
+// ... (styles remain exactly the same) ...
 const styles = {
     sidebarContainer: { display: 'flex', flexDirection: 'column', height: '100%', width: '100%', background: '#ffffff', borderLeft: '1px solid #e2e8f0', overflow: 'hidden' },
     content: { padding: '1rem', display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' },
@@ -88,7 +100,6 @@ const styles = {
     viewToggle: { display: 'flex', gap: '8px', marginBottom: '8px', flexShrink: 0 },
     tab: { background: 'none', border: '1px solid #e2e8f0', padding: '6px 14px', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer', color: '#64748b' },
     activeTab: { background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '6px 14px', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer', color: '#1e293b', fontWeight: 'bold', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' },
-    // New style for the full screen graph
     fullGraphContainer: { flex: 1, background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0', overflow: 'hidden', minHeight: 0 },
     topologyDashboard: { display: 'flex', gap: '1rem', background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0', marginBottom: '1rem', flexShrink: 0 },
     statBox: { display: 'flex', flexDirection: 'column' },

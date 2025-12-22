@@ -58,7 +58,7 @@ const App = () => {
     const traversalLogger = useMemo(() => new ReactTraversalLogger('debug', handleNewLog), [handleNewLog]);
     // Wrapped setter: only updates state if tracking is on
     const handleSetQuery = useCallback((query) => {
-        setTopology(null);
+        setTopology({ data: null, update: false });
         setCurrentQuery(query);
         setLogs([]);
     }, []);
@@ -79,34 +79,31 @@ const App = () => {
         let lastData = null;
         let flushTimer = null;
         const flush = () => {
+            // 1. Explicitly clear the timer reference so we don't think it's running
+            if (flushTimer) {
+                clearTimeout(flushTimer);
+                flushTimer = null;
+            }
+            // 2. Only update if we actually have buffered data
             if (lastData) {
-                setTopology(lastData);
+                setTopology({ data: lastData, update: true });
                 eventBuffer = 0;
                 lastData = null;
             }
-            if (flushTimer)
-                clearTimeout(flushTimer);
         };
         tracker.on((data) => {
             lastData = data;
             eventBuffer++;
             // 2. Calculate Dynamic Batch Size
-            // We check how many nodes exist to determine how "heavy" the render will be.
-            // O(N) check is negligible compared to React rendering cost.
             const totalNodes = Object.keys(data.indexToNodeDict).length;
-            // Formula: Start at 10, add 1 for every 50 nodes, cap at 200.
-            // 0 nodes -> batch 10
-            // 500 nodes -> batch 20
-            // 5000 nodes -> batch 110
             const currentBatchTarget = Math.min(MAX_BATCH, MIN_BATCH + Math.floor(totalNodes / SCALING_FACTOR));
-            // 3. Batch Strategy
             if (eventBuffer >= currentBatchTarget) {
                 flush();
             }
             else {
-                // Reset safety timer (debouncer)
-                if (flushTimer)
+                if (flushTimer) {
                     clearTimeout(flushTimer);
+                }
                 flushTimer = setTimeout(flush, FLUSH_TIMEOUT);
             }
         });

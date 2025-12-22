@@ -2,9 +2,8 @@ import React, { useEffect, useRef } from 'react';
 import cytoscape from 'cytoscape';
 
 // --- Configuration ---
-const HUB_THRESHOLD = 3; // Nodes with >= 3 children will always show their label
+const HUB_THRESHOLD = 8; // Nodes with >= 3 children will always show their label
 
-// --- Interfaces ---
 export interface ITopologyUpdate {
   updateType: 'discover' | 'dereference';
   adjacencyListIn: Record<number, number[]>;
@@ -20,6 +19,7 @@ export interface ITopologyUpdate {
 
 interface GraphProps {
   data: ITopologyUpdate | null;
+  update: boolean;
 }
 
 // --- Helper: URL Shortener ---
@@ -35,10 +35,11 @@ const shortenLabel = (url: string) => {
   }
 };
 
-const TopologyGraph: React.FC<GraphProps> = ({ data }) => {
+const TopologyGraph: React.FC<GraphProps> = ({ data, update }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
   const layoutHasRun = useRef(false);
+  const layoutFinalizedTruncated = useRef(false);
 
   // 1. Initialize Cytoscape (Runs Once)
   useEffect(() => {
@@ -48,6 +49,12 @@ const TopologyGraph: React.FC<GraphProps> = ({ data }) => {
       container: containerRef.current,
       minZoom: 0.05,
       maxZoom: 3,
+      // --- PERFORMANCE SETTINGS ---
+      textureOnViewport: true,  // Renders a low-res "texture" while zooming/panning (HUGE speedup)
+      hideEdgesOnViewport: true, // Hides edges while dragging (optional, but very fast)
+      pixelRatio: 1, // Caps rendering at 1x density. Critical for high-DPI screens.
+      motionBlur: true, // Adds motion blur effect that can mask low framerate (optional)
+      
       style: [
         // --- BASE NODE (Labels Hidden by Default) ---
         {
@@ -76,13 +83,13 @@ const TopologyGraph: React.FC<GraphProps> = ({ data }) => {
         },
         // --- HUB NODE (Always Show Label) ---
         {
-          selector: '.hub',
-          style: {
-            'text-opacity': 1,
-            'font-weight': 'bold',
-            'font-size': '13px',
-            'z-index': 10
-          }
+           selector: '.hub',
+           style: {
+             'text-opacity': 1,
+             'font-weight': 'bold',
+             'font-size': '13px',
+             'z-index': 10
+           }
         },
         // --- HOVER STATE (Show Label Interaction) ---
         {
@@ -122,12 +129,12 @@ const TopologyGraph: React.FC<GraphProps> = ({ data }) => {
           }
         },
         // --- EDGES ---
-{
+        {
           selector: 'edge',
           style: {
             'width': 2,               // Slightly thicker line
             'line-color': '#94a3b8',  // Darker Slate Gray (was #cbd5e1)
-            'curve-style': 'bezier',
+            'curve-style': 'straight', // Performance: straight is faster than bezier
             'target-arrow-shape': 'triangle',
             'target-arrow-color': '#64748b', // Match the darker line
             'arrow-scale': .8,       // Much larger arrowhead (was 0.8)
@@ -141,10 +148,7 @@ const TopologyGraph: React.FC<GraphProps> = ({ data }) => {
     // --- EVENT LISTENERS FOR HOVER ---
     cy.on('mouseover', 'node', (e) => {
       const node = e.target;
-      // Force label visible on hover
       node.addClass('hovered');
-      // Highlight edges? Optional:
-      // node.connectedEdges().animate({ style: { 'line-color': '#64748b', width: 2 } }, { duration: 100 });
     });
 
     cy.on('mouseout', 'node', (e) => {
@@ -160,77 +164,55 @@ const TopologyGraph: React.FC<GraphProps> = ({ data }) => {
     };
   }, []);
 
-  // 2. Handle Data Updates
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy || !data) return;
+    
+    // Safety check for empty data
+    if (Object.keys(data.indexToNodeDict).length === 0) return;
+
+    // When the graph has been truncated and fully finalized, stop updates
+    if (layoutFinalizedTruncated.current === true && update){
+      runSpaciousLayout(cy, false);
+      layoutHasRun.current = true;
+      return;
+    }
+    
+    const truncationLimit = 100;
+    const maxFrontierNodes = 50;
+    let frontierFull = false;
 
     cy.batch(() => {
-      const dereferencedSet = new Set(data.dereferenceOrder);
-      const activeNodeId = data.childNode;
-      console.log("Starting batch")
-      Object.entries(data.indexToNodeDict).forEach(([idStr, url]) => {
-        console.log(`Adding: ${url}`)
-        if (url.endsWith('.meta')) return;
-        const id = parseInt(idStr);
-        const existing = cy.getElementById(idStr);
+      const isTruncating = data.dereferenceOrder.length > truncationLimit;
+      
+      const safeNodesArray = isTruncating 
+          ? data.dereferenceOrder.slice(0, truncationLimit) 
+          : data.dereferenceOrder;
+          
+      const safeSet = new Set(safeNodesArray);
+      const fullDereferencedSet = new Set(data.dereferenceOrder);
 
-        // Status Checks
-        const isDereferenced = dereferencedSet.has(id);
-        const isActive = id === activeNodeId;
-        
-        // Topology Checks
-        const parents = data.adjacencyListIn[id];
-        const children = data.adjacencyListOut[id];
-        
-        const isRoot = !parents || parents.length === 0;
-        
-        // Hub Check: Does it point to many things?
-        const isHub = children && children.length >= HUB_THRESHOLD;
+      // 2. Create Graph based on logic
+      const { fullyDereferenced, full } = createTruncatedGraph(
+        data, 
+        safeSet, 
+        fullDereferencedSet, 
+        maxFrontierNodes, 
+        cy
+      );
+      console.log(`Full from graph: ${full}`);
+      frontierFull = full;
 
-        const classes = [
-          isDereferenced ? 'dereferenced' : '',
-          isActive ? 'active' : '',
-          isRoot ? 'root' : '',
-          isHub ? 'hub' : '' // This class triggers 'text-opacity: 1'
-        ].filter(Boolean).join(' ');
+      // If we are truncating and hit the frontier limit, lock existing nodes
+      // to prevents layout jitter as new frontier nodes might pop in/out
+      if (isTruncating && frontierFull) {
+        const preExistingNodes = cy.nodes();
+        preExistingNodes.lock();
+      }
+      
+      layoutFinalizedTruncated.current = fullyDereferenced;
 
-        if (existing.nonempty()) {
-          if (existing.classes().join(' ') !== classes) {
-            existing.classes(classes);
-          }
-        } else {
-          cy.add({
-            group: 'nodes',
-            data: { 
-              id: idStr, 
-              label: url,
-              shortLabel: shortenLabel(url)
-            },
-            classes: classes,
-            position: getInitialPosition(cy, data.parentNode)
-          });
-        }
-      });
-
-      Object.entries(data.adjacencyListOut).forEach(([sourceStr, targets]) => {
-        
-        targets.forEach(targetId => {
-          if (data.indexToNodeDict[targetId]!.endsWith('.meta')) return;
-          const edgeId = `${sourceStr}->${targetId}`;
-          if (cy.getElementById(edgeId).empty()) {
-            cy.add({
-              group: 'edges',
-              data: {
-                id: edgeId,
-                source: sourceStr,
-                target: targetId.toString()
-              }
-            });
-          }
-        });
-      });
-      // --- PHASE 3: Post-Filter & Deduplication ---
+      // --- PHASE 3: Deduplication / Merging ---
       const seenLabels = new Map<string, string>(); // shortLabel -> keeperNodeId
       const nodesToRemove = cy.collection();
 
@@ -243,12 +225,12 @@ const TopologyGraph: React.FC<GraphProps> = ({ data }) => {
         if (seenLabels.has(shortLabel)) {
           const keeperId = seenLabels.get(shortLabel)!;
           
-          // 1. Rewire Edges: SAFELY move connections to the Keeper
+          // 1. Rewire Edges to the Keeper
           node.connectedEdges().forEach((edge) => {
             const isSource = edge.source().id() === node.id();
             const otherSideId = isSource ? edge.target().id() : edge.source().id();
 
-            // Prevent self-loops (Keeper -> Keeper)
+            // Prevent self-loops
             if (otherSideId === keeperId) return;
 
             if (isSource) {
@@ -274,8 +256,15 @@ const TopologyGraph: React.FC<GraphProps> = ({ data }) => {
     });
 
     if (data.updateType === 'discover' || !layoutHasRun.current) {
-      runSpaciousLayout(cy);
+      runSpaciousLayout(cy, true);
       layoutHasRun.current = true;
+      // When all nodes that will be rendered exist, just lock them
+      // but still allow updates to node states
+      console.log(`frontier full: ${frontierFull}`);
+      if (frontierFull){
+        const existingNodes = cy.nodes();
+        existingNodes.lock();
+      }
     }
   }, [data]);
 
@@ -287,22 +276,138 @@ const TopologyGraph: React.FC<GraphProps> = ({ data }) => {
   );
 };
 
-// --- Layout Config (Same spacious layout as before) ---
-const runSpaciousLayout = (cy: cytoscape.Core) => {
+function createTruncatedGraph(
+  data: ITopologyUpdate,
+  safeSet: Set<number>,        // Fully processed nodes within limit
+  fullDereferencedSet: Set<number>, // All dereferenced nodes (for styling)
+  maxFrontier: number,         // Max number of un-dereferenced children to show
+  cy: cytoscape.Core
+){
+  const nodesRendered: Set<number> = new Set();
+  const rootNodes: Set<number> = new Set();
+  let frontierCount = 0;
+
+  // 1. Iterate over ALL known nodes to decide what to render
+  Object.entries(data.indexToNodeDict).forEach(([idStr, url]) => {
+    if (url.endsWith('.meta')) return;
+    const id = parseInt(idStr);
+    
+    const parents = data.adjacencyListIn[id];
+    const isRoot = !parents || parents.length === 0;
+
+    let shouldRender = false;
+
+    if (safeSet.has(id)) {
+        // Case A: Safe Node (In the truncated list)
+        shouldRender = true;
+    } else if (isRoot) {
+        // Case B: Root Node (Always show)
+        shouldRender = true;
+    } else {
+        // Case C: Frontier Node (Child of a Safe Node)
+        // Only show if we haven't hit the frontier limit
+        const hasSafeParent = parents?.some(p => safeSet.has(p));
+        if (hasSafeParent) {
+            if (frontierCount < maxFrontier) {
+                shouldRender = true;
+                frontierCount++;
+            }
+        }
+    }
+
+    if (!shouldRender) return;
+
+    // --- RENDER ---
+    nodesRendered.add(id);
+    if (isRoot) rootNodes.add(id);
+
+    const existing = cy.getElementById(idStr);
+    const children = data.adjacencyListOut[id];
+
+    // Status Styling
+    // A node is only "green" (dereferenced) if it is in the FULL set
+    const isDereferenced = fullDereferencedSet.has(id); 
+    const isHub = children && children.length >= HUB_THRESHOLD;
+
+    const classes = [
+      isDereferenced ? 'dereferenced' : '',
+      isRoot ? 'root' : '',
+      isHub ? 'hub' : '' 
+    ].filter(Boolean).join(' ');
+
+    if (existing.nonempty()) {
+      if (existing.classes().join(' ') !== classes) {
+        existing.classes(classes);
+      }
+    } else {
+      cy.add({
+        group: 'nodes',
+        data: { 
+          id: idStr, 
+          label: url,
+          shortLabel: shortenLabel(url)
+        },
+        classes: classes,
+        position: getInitialPosition(cy, data.parentNode)
+      });
+    }
+  });
+
+  // 2. Add Edges (Only where both source and target are rendered)
+  Object.entries(data.adjacencyListOut).forEach(([sourceStr, targets]) => {  
+    const sourceId = parseInt(sourceStr);
+    if (!nodesRendered.has(sourceId)) return;
+
+    targets.forEach(targetId => {
+      if (data.indexToNodeDict[targetId]?.endsWith('.meta')) return;
+      if (!nodesRendered.has(targetId)) return;
+      
+      const edgeId = `${sourceStr}->${targetId}`;
+      if (cy.getElementById(edgeId).empty()) {
+        cy.add({
+          group: 'edges',
+          data: {
+            id: edgeId,
+            source: sourceStr,
+            target: targetId.toString()
+          }
+        });
+      }
+    });
+  });
+
+  // 3. Check completion status
+  // We are "fully dereferenced" if every rendered node (except roots) has been processed
+  const fullyDereferenced = [...nodesRendered].every(id => 
+    fullDereferencedSet.has(id) || rootNodes.has(id)
+  );
+
+  const full = frontierCount >= maxFrontier;
+
+  return { fullyDereferenced, full };
+}
+
+// Update the layout function to accept a 'shouldFit' parameter
+const runSpaciousLayout = (cy: cytoscape.Core, shouldFit: boolean) => {
   cy.layout({
     name: 'cose',
-    animate: false,
-    nodeRepulsion: 12000,   
-    idealEdgeLength: 80,    
-    gravity: 0.5,           
-    nodeOverlap: 10,
-    nestingFactor: 0.8,
-    numIter: 1000,
-    initialTemp: 200,
-    coolingFactor: 0.95,
+    animate: false, 
+    
+    nodeRepulsion: 100000,   
+    idealEdgeLength: 300,    
+    gravity: 0.1,            
+    nodeOverlap: 50,
+    componentSpacing: 100,   
+    nestingFactor: 1.2,
+    numIter: 500,
+    initialTemp: 1000,
+    coolingFactor: 0.99,
     minTemp: 1.0,
-    padding: 50,
-    fit: true,
+    padding: 100, 
+    
+    // THE FIX: Only fit on the first run, otherwise maintain user's zoom
+    fit: shouldFit, 
+    
     randomize: false 
   } as any).run();
 };

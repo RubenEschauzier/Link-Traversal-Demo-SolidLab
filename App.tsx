@@ -10,9 +10,7 @@ import { AuthProvider, useAuth } from './src/context/AuthContext.js';
 import { ReactTraversalLogger, type LogEntry } from './src/api/queryEngineStub.js';
 import { StatisticLinkDiscovery } from '@comunica/statistic-link-discovery';
 import { StatisticLinkDereference } from '@comunica/statistic-link-dereference';
-
-
-
+// ...  ...
 
 interface SolidUser {
   id: string;
@@ -97,7 +95,7 @@ const App: React.FC = () => {
 
   // Wrapped setter: only updates state if tracking is on
   const handleSetQuery = useCallback((query: string) => {
-    setTopology(null);
+    setTopology({data: null, update: false});
     setCurrentQuery(query);
     setLogs([]);
   }, []);
@@ -111,6 +109,7 @@ const App: React.FC = () => {
   const FLUSH_TIMEOUT = 500; 
 
   const createTopologyTracker = useCallback(() => {
+    setTopology({data: null, update: false});
     if (!isTrackingEnabled) return null;
   
     const trackerDiscovery = new StatisticLinkDiscovery();
@@ -124,12 +123,18 @@ const App: React.FC = () => {
     let flushTimer: NodeJS.Timeout | null = null;
 
     const flush = () => {
+      // 1. Explicitly clear the timer reference so we don't think it's running
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+
+      // 2. Only update if we actually have buffered data
       if (lastData) {
-        setTopology(lastData);
+        setTopology({ data: lastData, update: true }); 
         eventBuffer = 0;
         lastData = null;
       }
-      if (flushTimer) clearTimeout(flushTimer);
     };
 
     tracker.on((data) => {
@@ -137,25 +142,18 @@ const App: React.FC = () => {
       eventBuffer++;
 
       // 2. Calculate Dynamic Batch Size
-      // We check how many nodes exist to determine how "heavy" the render will be.
-      // O(N) check is negligible compared to React rendering cost.
       const totalNodes = Object.keys(data.indexToNodeDict).length;
-      
-      // Formula: Start at 10, add 1 for every 50 nodes, cap at 200.
-      // 0 nodes -> batch 10
-      // 500 nodes -> batch 20
-      // 5000 nodes -> batch 110
       const currentBatchTarget = Math.min(
         MAX_BATCH, 
         MIN_BATCH + Math.floor(totalNodes / SCALING_FACTOR)
       );
 
-      // 3. Batch Strategy
       if (eventBuffer >= currentBatchTarget) {
         flush();
       } else {
-        // Reset safety timer (debouncer)
-        if (flushTimer) clearTimeout(flushTimer);
+        if (flushTimer) {
+          clearTimeout(flushTimer);
+        }
         flushTimer = setTimeout(flush, FLUSH_TIMEOUT);
       }
     });

@@ -25,6 +25,7 @@ interface QueryDebuggerProps {
   isTrackingEnabled?: boolean;
 }
 
+// ... (formatQuery helper remains the same) ...
 const formatQuery = (query: string) => {
   if (!query) return '';
   const lines = query.split('\n');
@@ -55,13 +56,15 @@ const QueryDebugger: React.FC<QueryDebuggerProps> = ({
   const [queryHeight, setQueryHeight] = useState(220);
   const [isResizing, setIsResizing] = useState(false);
   
+  // Force graph reset when clicking the tab again
+  const [graphResetKey, setGraphResetKey] = useState(0);
+
   // 1. PERSISTENCE: Initialize viewMode from LocalStorage
   const [viewMode, setViewMode] = useState<'stats' | 'graph'>(() => {
     const saved = localStorage.getItem('debugger_view_mode');
     return saved === 'graph' ? 'graph' : 'stats';
   });
 
-  // 2. PERSISTENCE: Save viewMode on change
   useEffect(() => {
     localStorage.setItem('debugger_view_mode', viewMode);
   }, [viewMode]);
@@ -106,6 +109,12 @@ const QueryDebugger: React.FC<QueryDebuggerProps> = ({
 
   const highlightedQuery = useMemo(() => formatQuery(currentQuery), [currentQuery]);
 
+  const handleGraphTabClick = () => {
+    setViewMode('graph');
+    // Increment reset key to force redraw even if already on graph view
+    setGraphResetKey(prev => prev + 1);
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -134,9 +143,9 @@ const QueryDebugger: React.FC<QueryDebuggerProps> = ({
               📝 Query & Logs
             </button>
             <button 
-              onClick={() => setViewMode('graph')} 
+              onClick={handleGraphTabClick} 
               style={viewMode === 'graph' ? styles.activeTab : styles.tab}
-              title="Show Full Screen Topology"
+              title="Show Full Screen Topology (Click to Reset)"
             >
               🕸️ Topology Graph
             </button>
@@ -147,28 +156,17 @@ const QueryDebugger: React.FC<QueryDebuggerProps> = ({
         {viewMode === 'graph' && topology ? (
           // FULL HEIGHT GRAPH MODE
           <div style={styles.fullGraphContainer}>
-            <TopologyGraph data={topology as any} />
+            <TopologyGraph 
+                // KEY CHANGE: Combining query + reset key ensures:
+                // 1. Reset when query changes
+                // 2. Reset when tab is toggled or clicked again
+                data={topology.data as any} 
+                update={topology.update}
+            />
           </div>
         ) : (
           // STANDARD DEBUG MODE (Stats + Query + Logs)
           <>
-            {topology && (
-              <div style={styles.topologyDashboard}>
-                <div style={styles.statBox}>
-                  <span style={styles.statLabel}>Sources</span>
-                  <span style={styles.statValue}>{topology.totalSources || 0}</span>
-                </div>
-                <div style={styles.statBox}>
-                  <span style={styles.statLabel}>Requests</span>
-                  <span style={styles.statValue}>{topology.totalRequests || 0}</span>
-                </div>
-                <div style={styles.statBox}>
-                  <span style={styles.statLabel}>Active</span>
-                  <span style={{...styles.statValue, color: (topology.activeRequests || 0) > 0 ? '#3b82f6' : '#94a3b8'}}>{topology.activeRequests || 0}</span>
-                </div>
-              </div>
-            )}
-
             <section style={{ ...styles.querySection, height: queryHeight }}>
               <h3 style={styles.sectionTitle}>SPARQL Query</h3>
               <div style={styles.codeWrapper}>
@@ -204,6 +202,7 @@ const QueryDebugger: React.FC<QueryDebuggerProps> = ({
   );
 };
 
+// ... (styles remain exactly the same) ...
 const styles: { [key: string]: CSSProperties } = {
   sidebarContainer: { display: 'flex', flexDirection: 'column', height: '100%', width: '100%', background: '#ffffff', borderLeft: '1px solid #e2e8f0', overflow: 'hidden' },
   content: { padding: '1rem', display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' },
@@ -216,7 +215,6 @@ const styles: { [key: string]: CSSProperties } = {
   tab: { background: 'none', border: '1px solid #e2e8f0', padding: '6px 14px', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer', color: '#64748b' },
   activeTab: { background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '6px 14px', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer', color: '#1e293b', fontWeight: 'bold', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' },
   
-  // New style for the full screen graph
   fullGraphContainer: { flex: 1, background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0', overflow: 'hidden', minHeight: 0 },
 
   topologyDashboard: { display: 'flex', gap: '1rem', background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0', marginBottom: '1rem', flexShrink: 0 },

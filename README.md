@@ -12,10 +12,8 @@ Additionally there is option to view the executed queries, the logger output, an
 
 ## TODO:
 
-- [ ] Logger for forum list breaks the query, without it it is fast
 - [ ] Logger filter does not work properly it 1. can't filter out determined first entry logs for binding join. 
 Also that log doesn't show the entry properly. 2. It doesn't filter out things that should be filtered out. Probably
 something async. (before Ruben T)
 - [ ] Authentication either through fake account or real authentication
-- [ ] Topology visualizer using statistic-traversal-topology (before Ruben T is back)
-
+- [ ] Truncate large graphs. Do so based on dereferenceOrder. Keep any discovered children of dereferenced URIs + Add an indicator saying the topology is truncated for performance considerations.

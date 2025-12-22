@@ -13,6 +13,7 @@ export interface ITopologyUpdate {
 }
 interface GraphProps {
     data: ITopologyUpdate | null;
+    update: boolean;
 }
 declare const TopologyGraph: React.FC<GraphProps>;
 export default TopologyGraph;
