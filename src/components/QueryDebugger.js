@@ -21,12 +21,30 @@ const formatQuery = (query) => {
         .replace(/(&lt;https?:\/\/[^&]+&gt;)/g, '<span style="color: #98c379;">$1</span>')
         .replace(/\b([a-zA-Z0-9_-]+:[a-zA-Z0-9_-]+)\b/g, '<span style="color: #61afef;">$1</span>');
 };
-const QueryDebugger = ({ isOpen, onClose, currentQuery, logs, topology, isTrackingEnabled = true }) => {
+const QueryDebugger = ({ isOpen, onClose, currentQuery, logs, topology, processor, // Received from App.tsx
+isTrackingEnabled = true }) => {
     const containerRef = useRef(null);
     const [queryHeight, setQueryHeight] = useState(220);
     const [isResizing, setIsResizing] = useState(false);
     // Force graph reset when clicking the tab again
     const [graphResetKey, setGraphResetKey] = useState(0);
+    // --- NEW: Local Stats State ---
+    const [stats, setStats] = useState({ nodes: 0, edges: 0 });
+    // --- NEW: Listen to Processor for Stats Updates ---
+    useEffect(() => {
+        if (!processor) {
+            setStats({ nodes: 0, edges: 0 });
+            return;
+        }
+        // Initialize immediately
+        setStats(processor.getCounts());
+        // Subscribe to changes. Whenever the graph updates (nodes added),
+        // we fetch the new total counts.
+        const unsubscribe = processor.subscribe(() => {
+            setStats(processor.getCounts());
+        });
+        return () => unsubscribe();
+    }, [processor]);
     // 1. PERSISTENCE: Initialize viewMode from LocalStorage
     const [viewMode, setViewMode] = useState(() => {
         const saved = localStorage.getItem('debugger_view_mode');
@@ -79,19 +97,15 @@ const QueryDebugger = ({ isOpen, onClose, currentQuery, logs, topology, isTracki
     };
     if (!isOpen)
         return null;
-    return (_jsx("div", { ref: containerRef, style: { ...styles.sidebarContainer, userSelect: isResizing ? 'none' : 'auto', cursor: isResizing ? 'row-resize' : 'auto' }, children: _jsxs("div", { style: styles.content, children: [_jsxs("div", { style: styles.toolbar, children: [_jsx("div", { style: { ...styles.statusBadge, backgroundColor: isTrackingEnabled ? '#f0fdf4' : '#fef2f2', color: isTrackingEnabled ? '#16a34a' : '#dc2626', borderColor: isTrackingEnabled ? '#bbf7d0' : '#fecaca' }, children: isTrackingEnabled ? '● TRACKING ACTIVE' : '○ TRACKING PAUSED' }), _jsxs("div", { style: styles.filterGroup, children: [_jsxs("label", { style: styles.filterLabel, children: [_jsx("input", { type: "checkbox", checked: showTraverse, onChange: (e) => setShowTraverse(e.target.checked) }), " Traverse"] }), _jsxs("label", { style: styles.filterLabel, children: [_jsx("input", { type: "checkbox", checked: showPlanning, onChange: (e) => setShowPlanning(e.target.checked) }), " Planning"] })] })] }), topology && (_jsxs("div", { style: styles.viewToggle, children: [_jsx("button", { onClick: () => setViewMode('stats'), style: viewMode === 'stats' ? styles.activeTab : styles.tab, title: "Show Logs and Query", children: "\uD83D\uDCDD Query & Logs" }), _jsx("button", { onClick: handleGraphTabClick, style: viewMode === 'graph' ? styles.activeTab : styles.tab, title: "Show Full Screen Topology (Click to Reset)", children: "\uD83D\uDD78\uFE0F Topology Graph" })] })), viewMode === 'graph' && topology ? (
+    return (_jsx("div", { ref: containerRef, style: { ...styles.sidebarContainer, userSelect: isResizing ? 'none' : 'auto', cursor: isResizing ? 'row-resize' : 'auto' }, children: _jsxs("div", { style: styles.content, children: [_jsxs("div", { style: styles.toolbar, children: [_jsx("div", { style: { ...styles.statusBadge, backgroundColor: isTrackingEnabled ? '#f0fdf4' : '#fef2f2', color: isTrackingEnabled ? '#16a34a' : '#dc2626', borderColor: isTrackingEnabled ? '#bbf7d0' : '#fecaca' }, children: isTrackingEnabled ? '● TRACKING ACTIVE' : '○ TRACKING PAUSED' }), _jsxs("div", { style: styles.filterGroup, children: [_jsxs("label", { style: styles.filterLabel, children: [_jsx("input", { type: "checkbox", checked: showTraverse, onChange: (e) => setShowTraverse(e.target.checked) }), " Traverse"] }), _jsxs("label", { style: styles.filterLabel, children: [_jsx("input", { type: "checkbox", checked: showPlanning, onChange: (e) => setShowPlanning(e.target.checked) }), " Planning"] })] })] }), (topology || processor) && (_jsxs("div", { style: styles.viewToggle, children: [_jsx("button", { onClick: () => setViewMode('stats'), style: viewMode === 'stats' ? styles.activeTab : styles.tab, title: "Show Logs and Query", children: "\uD83D\uDCDD Query & Logs" }), _jsx("button", { onClick: handleGraphTabClick, style: viewMode === 'graph' ? styles.activeTab : styles.tab, title: "Show Full Screen Topology (Click to Reset)", children: "\uD83D\uDD78\uFE0F Topology Graph" })] })), viewMode === 'graph' && processor ? (
                 // FULL HEIGHT GRAPH MODE
                 _jsx("div", { style: styles.fullGraphContainer, children: _jsx(TopologyGraph
-                    // KEY CHANGE: Combining query + reset key ensures:
-                    // 1. Reset when query changes
-                    // 2. Reset when tab is toggled or clicked again
+                    // Pass the processor instance directly
                     , { 
-                        // KEY CHANGE: Combining query + reset key ensures:
-                        // 1. Reset when query changes
-                        // 2. Reset when tab is toggled or clicked again
-                        data: topology.data, update: topology.update }, `${currentQuery}-${graphResetKey}`) })) : (
+                        // Pass the processor instance directly
+                        processor: processor }, `${currentQuery}-${graphResetKey}`) })) : (
                 // STANDARD DEBUG MODE (Stats + Query + Logs)
-                _jsxs(_Fragment, { children: [_jsxs("section", { style: { ...styles.querySection, height: queryHeight }, children: [_jsx("h3", { style: styles.sectionTitle, children: "SPARQL Query" }), _jsx("div", { style: styles.codeWrapper, children: _jsx("pre", { style: styles.codeBlock, dangerouslySetInnerHTML: { __html: highlightedQuery } }) })] }), _jsx("div", { onMouseDown: startResizing, style: { ...styles.resizer, backgroundColor: isResizing ? '#3b82f6' : 'transparent' }, children: _jsx("div", { style: styles.resizerHandle }) }), _jsxs("section", { style: styles.logSection, children: [_jsxs("h3", { style: styles.sectionTitle, children: ["Engine Logs (", filteredLogs.length, ")"] }), _jsx("div", { style: styles.logWindow, children: filteredLogs.length > 0 ? (filteredLogs.map((log) => (_jsxs("div", { style: styles.logLine, children: [_jsx("span", { style: styles.timestamp, children: log.timestamp }), _jsx("span", { style: { color: log.level === 'error' ? '#f87171' : log.level === 'warn' ? '#fbbf24' : '#e2e8f0', wordBreak: 'break-word' }, children: log.message })] }, log.id)))) : (_jsx("div", { style: styles.emptyLogs, children: "No logs match active filters..." })) })] })] }))] }) }));
+                _jsxs(_Fragment, { children: [processor && (_jsxs("div", { style: styles.topologyDashboard, children: [_jsxs("div", { style: styles.statBox, children: [_jsx("span", { style: styles.statLabel, children: "Total Nodes" }), _jsx("span", { style: styles.statValue, children: stats.nodes })] }), _jsxs("div", { style: styles.statBox, children: [_jsx("span", { style: styles.statLabel, children: "Total Edges" }), _jsx("span", { style: styles.statValue, children: stats.edges })] })] })), _jsxs("section", { style: { ...styles.querySection, height: queryHeight }, children: [_jsx("h3", { style: styles.sectionTitle, children: "SPARQL Query" }), _jsx("div", { style: styles.codeWrapper, children: _jsx("pre", { style: styles.codeBlock, dangerouslySetInnerHTML: { __html: highlightedQuery } }) })] }), _jsx("div", { onMouseDown: startResizing, style: { ...styles.resizer, backgroundColor: isResizing ? '#3b82f6' : 'transparent' }, children: _jsx("div", { style: styles.resizerHandle }) }), _jsxs("section", { style: styles.logSection, children: [_jsxs("h3", { style: styles.sectionTitle, children: ["Engine Logs (", filteredLogs.length, ")"] }), _jsx("div", { style: styles.logWindow, children: filteredLogs.length > 0 ? (filteredLogs.map((log) => (_jsxs("div", { style: styles.logLine, children: [_jsx("span", { style: styles.timestamp, children: log.timestamp }), _jsx("span", { style: { color: log.level === 'error' ? '#f87171' : log.level === 'warn' ? '#fbbf24' : '#e2e8f0', wordBreak: 'break-word' }, children: log.message })] }, log.id)))) : (_jsx("div", { style: styles.emptyLogs, children: "No logs match active filters..." })) })] })] }))] }) }));
 };
 // ... (styles remain exactly the same) ...
 const styles = {

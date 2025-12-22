@@ -1,4 +1,5 @@
 import React from 'react';
+import type { UpdateProcessor } from '../api/UpdateProcessor.js';
 interface TopologyData {
     totalSources: number;
     totalRequests: number;
@@ -18,6 +19,7 @@ interface QueryDebuggerProps {
     currentQuery: string;
     logs: LogEntry[];
     topology: TopologyData | null;
+    processor: UpdateProcessor | null;
     isTrackingEnabled?: boolean;
 }
 declare const QueryDebugger: React.FC<QueryDebuggerProps>;

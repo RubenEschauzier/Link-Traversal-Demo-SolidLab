@@ -1,5 +1,6 @@
 import React, { type CSSProperties, useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import TopologyGraph from './TopologyGraph.js';
+import type { UpdateProcessor } from '../api/UpdateProcessor.js';
 
 interface TopologyData {
   totalSources: number;
@@ -21,7 +22,13 @@ interface QueryDebuggerProps {
   onClose: () => void;
   currentQuery: string;
   logs: LogEntry[];
+  
+  // Stats (Numbers)
   topology: TopologyData | null;
+  
+  // Graph Logic (Class Instance)
+  processor: UpdateProcessor | null;
+  
   isTrackingEnabled?: boolean;
 }
 
@@ -50,6 +57,7 @@ const QueryDebugger: React.FC<QueryDebuggerProps> = ({
   currentQuery,
   logs,
   topology,
+  processor, // Received from App.tsx
   isTrackingEnabled = true
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -58,6 +66,27 @@ const QueryDebugger: React.FC<QueryDebuggerProps> = ({
   
   // Force graph reset when clicking the tab again
   const [graphResetKey, setGraphResetKey] = useState(0);
+
+  // --- NEW: Local Stats State ---
+  const [stats, setStats] = useState({ nodes: 0, edges: 0 });
+  // --- NEW: Listen to Processor for Stats Updates ---
+  useEffect(() => {
+    if (!processor) {
+      setStats({ nodes: 0, edges: 0 });
+      return;
+    }
+
+    // Initialize immediately
+    setStats(processor.getCounts());
+
+    // Subscribe to changes. Whenever the graph updates (nodes added),
+    // we fetch the new total counts.
+    const unsubscribe = processor.subscribe(() => {
+       setStats(processor.getCounts());
+    });
+
+    return () => unsubscribe();
+  }, [processor]);
 
   // 1. PERSISTENCE: Initialize viewMode from LocalStorage
   const [viewMode, setViewMode] = useState<'stats' | 'graph'>(() => {
@@ -133,7 +162,8 @@ const QueryDebugger: React.FC<QueryDebuggerProps> = ({
         </div>
 
         {/* VIEW TOGGLE */}
-        {topology && (
+        {/* Show if either stats or processor exists */}
+        {(topology || processor) && (
           <div style={styles.viewToggle}>
             <button 
               onClick={() => setViewMode('stats')} 
@@ -153,21 +183,36 @@ const QueryDebugger: React.FC<QueryDebuggerProps> = ({
         )}
 
         {/* 3. CONDITIONAL RENDER: FULL GRAPH vs STANDARD VIEW */}
-        {viewMode === 'graph' && topology ? (
+        {viewMode === 'graph' && processor ? (
           // FULL HEIGHT GRAPH MODE
           <div style={styles.fullGraphContainer}>
             <TopologyGraph 
+                // Pass the processor instance directly
+                processor={processor}
+
                 // KEY CHANGE: Combining query + reset key ensures:
                 // 1. Reset when query changes
                 // 2. Reset when tab is toggled or clicked again
-                data={topology.data as any} 
-                update={topology.update}
                 key={`${currentQuery}-${graphResetKey}`}
             />
           </div>
         ) : (
           // STANDARD DEBUG MODE (Stats + Query + Logs)
           <>
+            {processor && (
+              <div style={styles.topologyDashboard}>
+                <div style={styles.statBox}>
+                  <span style={styles.statLabel}>Total Nodes</span>
+                  {/* Show Node Count */}
+                  <span style={styles.statValue}>{stats.nodes}</span>
+                </div>
+                <div style={styles.statBox}>
+                  <span style={styles.statLabel}>Total Edges</span>
+                  {/* Show Edge Count */}
+                  <span style={styles.statValue}>{stats.edges}</span>
+                </div>
+              </div>
+            )}
             <section style={{ ...styles.querySection, height: queryHeight }}>
               <h3 style={styles.sectionTitle}>SPARQL Query</h3>
               <div style={styles.codeWrapper}>
