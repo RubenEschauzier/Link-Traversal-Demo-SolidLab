@@ -1,6 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import { StatisticTraversalTopology } from '@rubeneschauzier/statistic-traversal-topology';
 import { Profile } from './src/pages/MyProfile.js';
 import { ForumDetail } from './src/pages/ForumDetail.js';
