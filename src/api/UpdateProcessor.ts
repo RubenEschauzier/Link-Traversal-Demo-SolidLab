@@ -28,6 +28,15 @@ export class UpdateProcessor {
     private nEdges = 0; 
     private knownStatuses = new Map<string, 'dereferenced' | 'hub'>();
 
+    // Stores {x, y} coordinates so the graph doesn't reset when switching tabs
+    public positionCache = new Map<string, { x: number; y: number }>();
+
+    // Viewport Memory (Zoom & Pan)
+    public viewportCache: { zoom: number; pan: { x: number; y: number } } | null = null;
+
+    // Clicked nodes memory
+    public clickedNodeIds = new Set<string>();
+    
     // Debouncing / Batching
     private pendingDiff = this.createEmptyPayload('append');
     private flushTimer: NodeJS.Timeout | null = null;
@@ -40,8 +49,6 @@ export class UpdateProcessor {
         this.topologyEmitter = topologyEmitter;
         this.topologyEmitter.on((data) => this.ingestData(data));
     }
-
-    // --- PUBLIC API ---
 
     /**
      * React components call this to receive updates.
@@ -169,6 +176,7 @@ export class UpdateProcessor {
             return decodeURIComponent(label);
         } catch (e) { return url; }
     }
+
     public getCounts() {
         return {
             nodes: this.knownNodesFull.size,

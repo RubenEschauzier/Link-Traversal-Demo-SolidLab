@@ -27,6 +27,18 @@ export declare class UpdateProcessor {
     private knownNodesFull;
     private nEdges;
     private knownStatuses;
+    positionCache: Map<string, {
+        x: number;
+        y: number;
+    }>;
+    viewportCache: {
+        zoom: number;
+        pan: {
+            x: number;
+            y: number;
+        };
+    } | null;
+    clickedNodeIds: Set<string>;
     private pendingDiff;
     private flushTimer;
     private readonly BATCH_MS;

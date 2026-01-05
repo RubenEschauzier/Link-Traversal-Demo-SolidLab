@@ -9,6 +9,12 @@ export class UpdateProcessor {
     knownNodesFull = new Set();
     nEdges = 0;
     knownStatuses = new Map();
+    // Stores {x, y} coordinates so the graph doesn't reset when switching tabs
+    positionCache = new Map();
+    // Viewport Memory (Zoom & Pan)
+    viewportCache = null;
+    // Clicked nodes memory
+    clickedNodeIds = new Set();
     // Debouncing / Batching
     pendingDiff = this.createEmptyPayload('append');
     flushTimer = null;
@@ -19,7 +25,6 @@ export class UpdateProcessor {
         this.topologyEmitter = topologyEmitter;
         this.topologyEmitter.on((data) => this.ingestData(data));
     }
-    // --- PUBLIC API ---
     /**
      * React components call this to receive updates.
      * 1. Returns an unsubscribe function.
