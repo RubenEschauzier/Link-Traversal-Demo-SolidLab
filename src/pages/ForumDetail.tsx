@@ -14,6 +14,10 @@ interface ForumProps {
     trackerDiscovery: StatisticLinkDiscovery;
     trackerDereference: StatisticLinkDereference;
   } | null;
+  onQueryStart: () => void;
+  onQueryEnd: () => void;
+  onResultArrived: () => void;
+  registerQuery: (stream: any[], setIsLoading: React.Dispatch<React.SetStateAction<boolean>>) => void;
 }
 
 interface Message {
@@ -26,11 +30,17 @@ interface Message {
   authorid: string;
 }
 
-interface Author {
-    uri: string;
-}
-
-export const ForumDetail: React.FC<ForumProps> = ({ setDebugQuery, logger, createTracker }) => {
+export const ForumDetail: React.FC<ForumProps> = (
+  {
+    setDebugQuery, 
+    logger,
+    createTracker,
+    onQueryStart,
+    onQueryEnd,
+    onResultArrived, 
+    registerQuery,
+  }
+) => {
   const location = useLocation();
   const navigate = useNavigate();
   const forumUri = location.state?.forumUri;
@@ -39,7 +49,7 @@ export const ForumDetail: React.FC<ForumProps> = ({ setDebugQuery, logger, creat
   const [title, setTitle] = useState('');
   const [moderator, setModerator] = useState('');
   const [messagesMap, setMessagesMap] = useState<Record<string, Message>>({});
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const fetchForumData = async () => {
@@ -84,7 +94,7 @@ export const ForumDetail: React.FC<ForumProps> = ({ setDebugQuery, logger, creat
           if (binding.has('fName') && binding.has('lName')) {
             setModerator(`${binding.get('fName').value} ${binding.get('lName').value}`);
           }
-          setLoading(false);
+          setIsLoading(false);
         })
         const trackers = createTracker();
         let context = {log: logger};
@@ -97,6 +107,7 @@ export const ForumDetail: React.FC<ForumProps> = ({ setDebugQuery, logger, creat
         }
         const bsMessages: BindingsStream = await executeTraversalQuery(queryMessages, context, 2);
         activeStream.current = bsMessages;
+        registerQuery([bsMods, bsMessages], setIsLoading);
 
         bsMessages.on('data', (binding) => {
           const msgUri = binding.get('msg').value;
@@ -127,13 +138,13 @@ export const ForumDetail: React.FC<ForumProps> = ({ setDebugQuery, logger, creat
             };
           });
           
-          setLoading(false);
+          setIsLoading(false);
         });
 
-        bsMessages.on('end', () => setLoading(false));
+        bsMessages.on('end', () => setIsLoading(false));
       } catch (err) {
         console.error("Forum query failed", err);
-        setLoading(false);
+        setIsLoading(false);
       }
     };
 
@@ -154,7 +165,7 @@ export const ForumDetail: React.FC<ForumProps> = ({ setDebugQuery, logger, creat
         ← Back to Profile
       </button>
 
-      {loading && sortedMessages.length === 0 ? (
+      {isLoading && sortedMessages.length === 0 ? (
         <div className="card loading-pulse">Searching for forum messages...</div>
       ) : (
         <>

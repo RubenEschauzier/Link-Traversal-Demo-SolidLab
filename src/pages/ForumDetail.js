@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { executeTraversalQuery, ReactTraversalLogger } from '../api/queryEngineStub.js';
 import { StatisticTraversalTopology } from '@rubeneschauzier/statistic-traversal-topology';
-export const ForumDetail = ({ setDebugQuery, logger, createTracker }) => {
+export const ForumDetail = ({ setDebugQuery, logger, createTracker, onQueryStart, onQueryEnd, onResultArrived, registerQuery, }) => {
     const location = useLocation();
     const navigate = useNavigate();
     const forumUri = location.state?.forumUri;
@@ -11,7 +11,7 @@ export const ForumDetail = ({ setDebugQuery, logger, createTracker }) => {
     const [title, setTitle] = useState('');
     const [moderator, setModerator] = useState('');
     const [messagesMap, setMessagesMap] = useState({});
-    const [loading, setLoading] = useState(true);
+    const [isLoading, setIsLoading] = useState(true);
     useEffect(() => {
         const fetchForumData = async () => {
             if (!forumUri)
@@ -51,7 +51,7 @@ export const ForumDetail = ({ setDebugQuery, logger, createTracker }) => {
                     if (binding.has('fName') && binding.has('lName')) {
                         setModerator(`${binding.get('fName').value} ${binding.get('lName').value}`);
                     }
-                    setLoading(false);
+                    setIsLoading(false);
                 });
                 const trackers = createTracker();
                 let context = { log: logger };
@@ -64,6 +64,7 @@ export const ForumDetail = ({ setDebugQuery, logger, createTracker }) => {
                 }
                 const bsMessages = await executeTraversalQuery(queryMessages, context, 2);
                 activeStream.current = bsMessages;
+                registerQuery([bsMods, bsMessages], setIsLoading);
                 bsMessages.on('data', (binding) => {
                     const msgUri = binding.get('msg').value;
                     const content = binding.has('content') ? binding.get('content').value : '';
@@ -91,13 +92,13 @@ export const ForumDetail = ({ setDebugQuery, logger, createTracker }) => {
                             }
                         };
                     });
-                    setLoading(false);
+                    setIsLoading(false);
                 });
-                bsMessages.on('end', () => setLoading(false));
+                bsMessages.on('end', () => setIsLoading(false));
             }
             catch (err) {
                 console.error("Forum query failed", err);
-                setLoading(false);
+                setIsLoading(false);
             }
         };
         fetchForumData();
@@ -107,6 +108,6 @@ export const ForumDetail = ({ setDebugQuery, logger, createTracker }) => {
         };
     }, [forumUri, setDebugQuery]);
     const sortedMessages = Object.values(messagesMap).sort((a, b) => b.date.getTime() - a.date.getTime());
-    return (_jsxs("div", { className: "container", style: { maxWidth: '800px', margin: '20px auto', padding: '0 20px' }, children: [_jsx("button", { className: "btn-primary", onClick: () => navigate(-1), style: { marginBottom: '20px' }, children: "\u2190 Back to Profile" }), loading && sortedMessages.length === 0 ? (_jsx("div", { className: "card loading-pulse", children: "Searching for forum messages..." })) : (_jsxs(_Fragment, { children: [_jsxs("div", { className: "card forum-header-card", children: [_jsx("h1", { children: title || 'Untitled Forum' }), _jsxs("p", { className: "forum-mod", children: ["\uD83D\uDEE1\uFE0F Moderator: ", _jsx("strong", { children: moderator || 'None' })] })] }), _jsxs("div", { className: "message-list", children: [_jsxs("h3", { children: ["Recent Activity (", sortedMessages.length, ")"] }), sortedMessages.map((msg) => (_jsxs("div", { className: "card message-card", style: { marginBottom: '15px', padding: '20px', cursor: 'pointer' }, children: [_jsxs("div", { className: "author-link", style: { fontWeight: 'bold', color: '#2563eb', marginBottom: '8px', display: 'inline-block' }, onClick: () => navigate(`/profiles/${msg.authorid}`, { state: { personUri: msg.authorUri } }), children: ["\uD83D\uDC64 ", msg.authorName] }), msg.content && (_jsx("div", { style: { marginBottom: '10px' }, children: _jsx("p", { style: { margin: 0, fontSize: '1.1rem', color: '#1e293b' }, children: msg.content }) })), msg.imageFile && (_jsxs("div", { className: "image-attachment-preview", children: [_jsx("small", { children: "\uD83D\uDDBC\uFE0F Image Attachment:" }), _jsx("code", { children: msg.imageFile })] })), _jsx("div", { className: "message-footer", children: _jsxs("small", { children: ["Posted: ", msg.date.toLocaleString()] }) })] }, msg.uri)))] })] }))] }));
+    return (_jsxs("div", { className: "container", style: { maxWidth: '800px', margin: '20px auto', padding: '0 20px' }, children: [_jsx("button", { className: "btn-primary", onClick: () => navigate(-1), style: { marginBottom: '20px' }, children: "\u2190 Back to Profile" }), isLoading && sortedMessages.length === 0 ? (_jsx("div", { className: "card loading-pulse", children: "Searching for forum messages..." })) : (_jsxs(_Fragment, { children: [_jsxs("div", { className: "card forum-header-card", children: [_jsx("h1", { children: title || 'Untitled Forum' }), _jsxs("p", { className: "forum-mod", children: ["\uD83D\uDEE1\uFE0F Moderator: ", _jsx("strong", { children: moderator || 'None' })] })] }), _jsxs("div", { className: "message-list", children: [_jsxs("h3", { children: ["Recent Activity (", sortedMessages.length, ")"] }), sortedMessages.map((msg) => (_jsxs("div", { className: "card message-card", style: { marginBottom: '15px', padding: '20px', cursor: 'pointer' }, children: [_jsxs("div", { className: "author-link", style: { fontWeight: 'bold', color: '#2563eb', marginBottom: '8px', display: 'inline-block' }, onClick: () => navigate(`/profiles/${msg.authorid}`, { state: { personUri: msg.authorUri } }), children: ["\uD83D\uDC64 ", msg.authorName] }), msg.content && (_jsx("div", { style: { marginBottom: '10px' }, children: _jsx("p", { style: { margin: 0, fontSize: '1.1rem', color: '#1e293b' }, children: msg.content }) })), msg.imageFile && (_jsxs("div", { className: "image-attachment-preview", children: [_jsx("small", { children: "\uD83D\uDDBC\uFE0F Image Attachment:" }), _jsx("code", { children: msg.imageFile })] })), _jsx("div", { className: "message-footer", children: _jsxs("small", { children: ["Posted: ", msg.date.toLocaleString()] }) })] }, msg.uri)))] })] }))] }));
 };
 //# sourceMappingURL=ForumDetail.js.map

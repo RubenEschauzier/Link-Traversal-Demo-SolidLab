@@ -42,6 +42,10 @@ interface ProfileProps {
     trackerDiscovery: StatisticLinkDiscovery;
     trackerDereference: StatisticLinkDereference;
   } | null;
+  onQueryStart: () => void;
+  onQueryEnd: () => void;
+  onResultArrived: () => void;
+  registerQuery: (stream: any[], setIsLoading: any) => void;
 }
 
 // --- SPARQL Queries ---
@@ -132,7 +136,17 @@ const processProfileBinding = (binding: any, prev: UserProfile | null): UserProf
   return { ...prev, interests: updatedInterests, email: updatedEmails };
 };
 
-export const Profile: React.FC<ProfileProps> = ({ setDebugQuery, logger, createTracker }) => {
+export const Profile: React.FC<ProfileProps> = (  
+  {
+    setDebugQuery, 
+    logger,
+    createTracker,
+    onQueryStart,
+    onQueryEnd,
+    onResultArrived, 
+    registerQuery,
+  }
+) => {
   const activeStream = useRef<BindingsStream | null>(null);
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -188,15 +202,21 @@ export const Profile: React.FC<ProfileProps> = ({ setDebugQuery, logger, createT
         };
       }
 
+      onQueryStart();
       const bs = await executeTraversalQuery(infoQuery, context, 2);
+      registerQuery([bs], setIsLoading);
       activeStream.current = bs;
 
       bs.on('data', (binding: any) => {
+        onResultArrived();
         setProfileData(prev => processProfileBinding(binding, prev));
         setIsLoading(false); 
       });
 
-      bs.on('end', () => setIsLoading(false));
+      bs.on('end', () => {
+        setIsLoading(false)
+        onQueryEnd();
+      });
     } catch (error) {
       console.error("Failed to load profile", error);
       setIsLoading(false);
@@ -222,12 +242,15 @@ export const Profile: React.FC<ProfileProps> = ({ setDebugQuery, logger, createT
           [trackers.trackerDereference.key.name]: trackers.trackerDereference,
         };
       }
+      onQueryStart();
       const bs = await executeTraversalQuery(forumsQuery, context, undefined);
+      registerQuery([bs], setIsLoading);
+
       activeStream.current = bs;
 
       bs.on('data', (binding: any) => {
         if (activeStream.current !== bs) return;
-
+        onResultArrived();
         const forumIri = binding.get('forum').value;
         const newForum: Forum = { 
           uri: forumIri, 
@@ -247,9 +270,11 @@ export const Profile: React.FC<ProfileProps> = ({ setDebugQuery, logger, createT
           });
         });
       });
-
       bs.on('end', () => {
-        if (activeStream.current === bs) setIsLoading(false);
+        if (activeStream.current === bs){
+          setIsLoading(false);
+          onQueryEnd();
+        }
       });    
     } catch (error) {
       console.error("Failed to load forums", error);
@@ -276,10 +301,13 @@ export const Profile: React.FC<ProfileProps> = ({ setDebugQuery, logger, createT
           [trackers.trackerDereference.key.name]: trackers.trackerDereference,
         };
       }
+      onQueryStart();
       const bs = await executeTraversalQuery(friendsQuery, context, 2);
       activeStream.current = bs;
+      registerQuery([bs], setIsLoading);
 
       bs.on('data', (binding: any) => {
+        onResultArrived();
         const friendUri = binding.get('friendProfile').value;
         const newFriend: Friend = {
           firstName: binding.get('firstName').value,
@@ -292,7 +320,10 @@ export const Profile: React.FC<ProfileProps> = ({ setDebugQuery, logger, createT
         setIsLoading(false);
       });
 
-      bs.on('end', () => setIsLoading(false));
+      bs.on('end', () => {
+        setIsLoading(false);
+        onQueryEnd();
+      });
     } catch (error) {
       console.error("Failed to load friends", error);
       setIsLoading(false);

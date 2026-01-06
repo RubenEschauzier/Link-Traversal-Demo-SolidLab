@@ -43,7 +43,7 @@ const processProfileBinding = (binding, prev) => {
     const updatedEmails = prev.email.includes(email) ? prev.email : `${prev.email}, ${email}`;
     return { ...prev, interests: updatedInterests, email: updatedEmails };
 };
-export const UserProfileDetail = ({ setDebugQuery, logger, createTracker }) => {
+export const UserProfileDetail = ({ setDebugQuery, logger, createTracker, onQueryStart, onQueryEnd, onResultArrived, registerQuery, }) => {
     const { id } = useParams();
     const location = useLocation();
     const navigate = useNavigate();
@@ -83,6 +83,7 @@ export const UserProfileDetail = ({ setDebugQuery, logger, createTracker }) => {
                 }
                 const bs = await executeTraversalQuery(infoQuery, context, 2);
                 activeStream.current = bs;
+                registerQuery([bs], setIsLoading);
                 bs.on('data', (binding) => {
                     setProfileData(prev => processProfileBinding(binding, prev));
                     setIsLoading(false);
@@ -97,14 +98,6 @@ export const UserProfileDetail = ({ setDebugQuery, logger, createTracker }) => {
         fetchUserData();
         return () => stopQuery();
     }, [id, location.state]);
-    // if (!isAuthenticated) {
-    //   return (
-    //     <div className="card" style={{ margin: '40px auto', maxWidth: '500px', textAlign: 'center' }}>
-    //       <h2>Access Denied</h2>
-    //       <p>Please log in to view decentralized profiles.</p>
-    //     </div>
-    //   );
-    // }
     return (_jsxs("div", { style: { maxWidth: '1000px', margin: '0 auto', padding: '40px 20px' }, children: [_jsx("button", { className: "btn-primary", onClick: () => navigate(-1), style: { marginBottom: '20px' }, children: "\u2190 Back" }), isLoading && !profileData ? (_jsx("div", { className: "card content-placeholder", children: _jsxs("div", { className: "loading-pulse", children: [_jsx("div", { className: "spinner" }), _jsxs("span", { children: ["Traversing pods to find ", id, "..."] })] }) })) : profileData ? (_jsxs("div", { className: "profile-container", children: [_jsxs("div", { className: "card profile-column-left", children: [_jsxs("div", { className: "profile-header", children: [_jsx("div", { className: "avatar-circle", style: { background: '#fef3c7', color: '#d97706' }, children: "\uD83D\uDC64" }), _jsxs("div", { children: [_jsxs("h2", { style: { margin: 0 }, children: [profileData.name, " ", profileData.lastName] }), _jsxs("p", { style: { color: '#666' }, children: ["\uD83D\uDCCD ", profileData.city] }), _jsxs("small", { style: { color: '#94a3b8' }, children: ["Solid ID: ", id] })] })] }), _jsxs("div", { className: "metadata-grid", children: [_jsxs("div", { children: [_jsx("div", { className: "meta-label", children: "Gender" }), _jsx("div", { className: "meta-value", children: profileData.gender })] }), _jsxs("div", { children: [_jsx("div", { className: "meta-label", children: "Birthday" }), _jsx("div", { className: "meta-value", children: profileData.birthday })] }), _jsxs("div", { children: [_jsx("div", { className: "meta-label", children: "Member Since" }), _jsx("div", { className: "meta-value", children: profileData.creationDate.toLocaleDateString() })] }), _jsxs("div", { style: { gridColumn: '1 / -1' }, children: [_jsx("div", { className: "meta-label", children: "Email" }), _jsx("div", { className: "meta-value", children: profileData.email })] })] })] }), _jsxs("div", { className: "card profile-column-right", children: [_jsx("h3", { children: "\u2764\uFE0F Interests" }), _jsx("div", { className: "scroll-area", children: profileData.interests.map((interest, i) => (_jsx("span", { className: "interest-chip", style: { background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0' }, children: interest }, i))) })] })] })) : (_jsxs("div", { className: "card", children: [_jsx("h2", { children: "User Not Found" }), _jsxs("p", { children: ["The profile for \"", id, "\" could not be resolved in the network."] })] }))] }));
 };
 //# sourceMappingURL=ProfileDetail.js.map

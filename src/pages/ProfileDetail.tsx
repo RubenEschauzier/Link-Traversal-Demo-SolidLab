@@ -26,6 +26,10 @@ interface ProfileProps {
     trackerDiscovery: StatisticLinkDiscovery;
     trackerDereference: StatisticLinkDereference;
   } | null;
+  onQueryStart: () => void;
+  onQueryEnd: () => void;
+  onResultArrived: () => void;
+  registerQuery: (stream: any[], setIsLoading: React.Dispatch<React.SetStateAction<boolean>>) => void;
 }
 
 
@@ -73,7 +77,17 @@ const processProfileBinding = (binding: any, prev: UserProfile | null): UserProf
   return { ...prev, interests: updatedInterests, email: updatedEmails };
 };
 
-export const UserProfileDetail: React.FC<ProfileProps> = ({ setDebugQuery, logger, createTracker }) => {
+export const UserProfileDetail: React.FC<ProfileProps> = (
+  { 
+    setDebugQuery,
+    logger,
+    createTracker,
+    onQueryStart,
+    onQueryEnd,
+    onResultArrived, 
+    registerQuery,
+
+  }) => {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
   const navigate = useNavigate();
@@ -117,7 +131,10 @@ export const UserProfileDetail: React.FC<ProfileProps> = ({ setDebugQuery, logge
           };
         }
         const bs: BindingsStream = await executeTraversalQuery(infoQuery, context, 2);
+
         activeStream.current = bs;
+        registerQuery([bs], setIsLoading);
+
         bs.on('data', (binding) => {
           setProfileData(prev => processProfileBinding(binding, prev));
           setIsLoading(false);
@@ -132,15 +149,6 @@ export const UserProfileDetail: React.FC<ProfileProps> = ({ setDebugQuery, logge
     fetchUserData();
     return () => stopQuery();
   }, [id, location.state]);
-
-  // if (!isAuthenticated) {
-  //   return (
-  //     <div className="card" style={{ margin: '40px auto', maxWidth: '500px', textAlign: 'center' }}>
-  //       <h2>Access Denied</h2>
-  //       <p>Please log in to view decentralized profiles.</p>
-  //     </div>
-  //   );
-  // }
 
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '40px 20px' }}>

@@ -82,7 +82,7 @@ const processProfileBinding = (binding, prev) => {
         : `${prev.email}, ${email}`;
     return { ...prev, interests: updatedInterests, email: updatedEmails };
 };
-export const Profile = ({ setDebugQuery, logger, createTracker }) => {
+export const Profile = ({ setDebugQuery, logger, createTracker, onQueryStart, onQueryEnd, onResultArrived, registerQuery, }) => {
     const activeStream = useRef(null);
     const { user, isAuthenticated } = useAuth();
     const navigate = useNavigate();
@@ -124,13 +124,19 @@ export const Profile = ({ setDebugQuery, logger, createTracker }) => {
                     [trackers.trackerDereference.key.name]: trackers.trackerDereference,
                 };
             }
+            onQueryStart();
             const bs = await executeTraversalQuery(infoQuery, context, 2);
+            registerQuery([bs], setIsLoading);
             activeStream.current = bs;
             bs.on('data', (binding) => {
+                onResultArrived();
                 setProfileData(prev => processProfileBinding(binding, prev));
                 setIsLoading(false);
             });
-            bs.on('end', () => setIsLoading(false));
+            bs.on('end', () => {
+                setIsLoading(false);
+                onQueryEnd();
+            });
         }
         catch (error) {
             console.error("Failed to load profile", error);
@@ -154,11 +160,14 @@ export const Profile = ({ setDebugQuery, logger, createTracker }) => {
                     [trackers.trackerDereference.key.name]: trackers.trackerDereference,
                 };
             }
+            onQueryStart();
             const bs = await executeTraversalQuery(forumsQuery, context, undefined);
+            registerQuery([bs], setIsLoading);
             activeStream.current = bs;
             bs.on('data', (binding) => {
                 if (activeStream.current !== bs)
                     return;
+                onResultArrived();
                 const forumIri = binding.get('forum').value;
                 const newForum = {
                     uri: forumIri,
@@ -178,8 +187,10 @@ export const Profile = ({ setDebugQuery, logger, createTracker }) => {
                 });
             });
             bs.on('end', () => {
-                if (activeStream.current === bs)
+                if (activeStream.current === bs) {
                     setIsLoading(false);
+                    onQueryEnd();
+                }
             });
         }
         catch (error) {
@@ -204,9 +215,12 @@ export const Profile = ({ setDebugQuery, logger, createTracker }) => {
                     [trackers.trackerDereference.key.name]: trackers.trackerDereference,
                 };
             }
+            onQueryStart();
             const bs = await executeTraversalQuery(friendsQuery, context, 2);
             activeStream.current = bs;
+            registerQuery([bs], setIsLoading);
             bs.on('data', (binding) => {
+                onResultArrived();
                 const friendUri = binding.get('friendProfile').value;
                 const newFriend = {
                     firstName: binding.get('firstName').value,
@@ -218,7 +232,10 @@ export const Profile = ({ setDebugQuery, logger, createTracker }) => {
                 setFriends(prev => prev.some(f => f.friendCard === friendUri) ? prev : [...prev, newFriend]);
                 setIsLoading(false);
             });
-            bs.on('end', () => setIsLoading(false));
+            bs.on('end', () => {
+                setIsLoading(false);
+                onQueryEnd();
+            });
         }
         catch (error) {
             console.error("Failed to load friends", error);

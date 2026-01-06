@@ -9,6 +9,10 @@ interface ForumProps {
         trackerDiscovery: StatisticLinkDiscovery;
         trackerDereference: StatisticLinkDereference;
     } | null;
+    onQueryStart: () => void;
+    onQueryEnd: () => void;
+    onResultArrived: () => void;
+    registerQuery: (stream: any[], setIsLoading: React.Dispatch<React.SetStateAction<boolean>>) => void;
 }
 export declare const ForumDetail: React.FC<ForumProps>;
 export {};

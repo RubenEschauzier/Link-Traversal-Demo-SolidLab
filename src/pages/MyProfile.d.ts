@@ -10,6 +10,10 @@ interface ProfileProps {
         trackerDiscovery: StatisticLinkDiscovery;
         trackerDereference: StatisticLinkDereference;
     } | null;
+    onQueryStart: () => void;
+    onQueryEnd: () => void;
+    onResultArrived: () => void;
+    registerQuery: (stream: any[], setIsLoading: any) => void;
 }
 export declare const Profile: React.FC<ProfileProps>;
 export {};

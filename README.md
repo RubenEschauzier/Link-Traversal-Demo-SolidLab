@@ -24,11 +24,13 @@ Traversed topologies are capped to around a 1000 nodes, as it would otherwise sl
       starting point for link traversal query
 - [x] Logger filter does not work properly it 1. can't filter out "determined first entry...." logs for binding join. 
 Also that log doesn't show the entry properly. 2. It doesn't filter out things that should be filtered out. Probably something to do with async.
-- [ ] Authentication through dropdown of fake accounts to show different performance profiles
-- [ ] Make a landing page
+- [x] Authentication through dropdown of fake accounts to show different performance profiles
+- [x] Make a landing page
 - [x] Graph Legend
-- [ ] Query performance page with execution time + graph for result arrival times
+- [x] Query performance page with execution time + graph for result arrival times (Just include code in other pages but practically done)
 - [x] Count number of traversed pods
+- [x] Rename nodes / edges
+- [x] Allow user to stop queries
 - [ ] Fix performance issue clicking from Forums "Group for George_Clooney in Narathiwat" 
 - [ ] Add buttons to click through flexibally from any profile page
 
