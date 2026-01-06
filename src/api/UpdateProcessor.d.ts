@@ -58,6 +58,7 @@ export declare class UpdateProcessor {
     getCounts(): {
         nodes: number;
         edges: number;
+        uris: string[];
     };
 }
 //# sourceMappingURL=UpdateProcessor.d.ts.map

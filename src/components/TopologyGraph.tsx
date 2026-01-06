@@ -168,8 +168,36 @@ const TopologyGraph: React.FC<GraphProps> = ({ processor }) => {
     };
   }, [processor]);
 
-  return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
-};
+  return (
+      <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+        
+        {/* 1. The Cytoscape Canvas */}
+        <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
+        {/* 2. The Legend Overlay */}
+        <div style={legendStyles.container}>
+          <h4 style={legendStyles.header}>Legend</h4>
+          
+          <div style={legendStyles.item}>
+            <span style={{ ...legendStyles.colorBox, backgroundColor: '#f59e0b' }}></span>
+            <span>Seed document</span>
+          </div>
+
+          <div style={legendStyles.item}>
+            <span style={{ ...legendStyles.colorBox, backgroundColor: '#10b981' }}></span>
+            <span>Dereferenced Document</span>
+          </div>
+
+          <div style={legendStyles.item}>
+            <span style={{ ...legendStyles.colorBox, backgroundColor: '#64748b' }}></span>
+            <span>Discovered Document</span>
+          </div>
+
+        </div>
+
+      </div>
+    );
+  };
 
 const getDeterministicPosition = (id: string) => {
   let hash = 0;
@@ -178,6 +206,42 @@ const getDeterministicPosition = (id: string) => {
     hash |= 0;
   }
   return { x: (hash % 1000), y: ((hash * 31) % 1000) };
+};
+
+const legendStyles: { [key: string]: React.CSSProperties } = {
+  container: {
+    position: 'absolute',
+    bottom: '20px',
+    left: '20px', // or right: '20px'
+    zIndex: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    padding: '12px',
+    borderRadius: '8px',
+    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+    border: '1px solid #e2e8f0',
+    fontSize: '14px',
+    color: '#334155',
+    pointerEvents: 'none', // Allows clicking through the legend if needed (optional)
+  },
+  header: {
+    margin: '0 0 8px 0',
+    fontSize: '12px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    color: '#64748b',
+  },
+  item: {
+    display: 'flex',
+    alignItems: 'center',
+    marginBottom: '4px',
+  },
+  colorBox: {
+    width: '12px',
+    height: '12px',
+    borderRadius: '2px',
+    marginRight: '8px',
+    display: 'inline-block',
+  }
 };
 
 export default TopologyGraph;

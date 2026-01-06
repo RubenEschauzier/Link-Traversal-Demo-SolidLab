@@ -1,4 +1,4 @@
-import { jsx as _jsx } from "react/jsx-runtime";
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import React, { useEffect, useRef } from 'react';
 import cytoscape from 'cytoscape';
 const TopologyGraph = ({ processor }) => {
@@ -145,7 +145,7 @@ const TopologyGraph = ({ processor }) => {
                 clearTimeout(finalLayoutTimer.current);
         };
     }, [processor]);
-    return _jsx("div", { ref: containerRef, style: { width: '100%', height: '100%' } });
+    return (_jsxs("div", { style: { position: 'relative', width: '100%', height: '100%' }, children: [_jsx("div", { ref: containerRef, style: { width: '100%', height: '100%' } }), _jsxs("div", { style: legendStyles.container, children: [_jsx("h4", { style: legendStyles.header, children: "Legend" }), _jsxs("div", { style: legendStyles.item, children: [_jsx("span", { style: { ...legendStyles.colorBox, backgroundColor: '#f59e0b' } }), _jsx("span", { children: "Seed document" })] }), _jsxs("div", { style: legendStyles.item, children: [_jsx("span", { style: { ...legendStyles.colorBox, backgroundColor: '#10b981' } }), _jsx("span", { children: "Dereferenced Document" })] }), _jsxs("div", { style: legendStyles.item, children: [_jsx("span", { style: { ...legendStyles.colorBox, backgroundColor: '#64748b' } }), _jsx("span", { children: "Discovered Document" })] })] })] }));
 };
 const getDeterministicPosition = (id) => {
     let hash = 0;
@@ -154,6 +154,41 @@ const getDeterministicPosition = (id) => {
         hash |= 0;
     }
     return { x: (hash % 1000), y: ((hash * 31) % 1000) };
+};
+const legendStyles = {
+    container: {
+        position: 'absolute',
+        bottom: '20px',
+        left: '20px', // or right: '20px'
+        zIndex: 10,
+        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        padding: '12px',
+        borderRadius: '8px',
+        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+        border: '1px solid #e2e8f0',
+        fontSize: '14px',
+        color: '#334155',
+        pointerEvents: 'none', // Allows clicking through the legend if needed (optional)
+    },
+    header: {
+        margin: '0 0 8px 0',
+        fontSize: '12px',
+        textTransform: 'uppercase',
+        letterSpacing: '0.05em',
+        color: '#64748b',
+    },
+    item: {
+        display: 'flex',
+        alignItems: 'center',
+        marginBottom: '4px',
+    },
+    colorBox: {
+        width: '12px',
+        height: '12px',
+        borderRadius: '2px',
+        marginRight: '8px',
+        display: 'inline-block',
+    }
 };
 export default TopologyGraph;
 //# sourceMappingURL=TopologyGraph.js.map

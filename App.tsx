@@ -158,7 +158,7 @@ const App: React.FC = () => {
                 checked={isTrackingEnabled} 
                 onChange={() => setIsTrackingEnabled(!isTrackingEnabled)} 
               />
-              {isTrackingEnabled ? '⚡ Tracking Active' : '⏸️ Tracking Paused'}
+              {isTrackingEnabled ? 'Tracking Active' : 'Tracking Paused'}
             </label>
 
             <UserStatus />

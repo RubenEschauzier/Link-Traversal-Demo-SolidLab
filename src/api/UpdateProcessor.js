@@ -66,6 +66,9 @@ export class UpdateProcessor {
                 const id = parseInt(idStr);
                 if (!this.knownNodes.has(idStr)) {
                     const isRoot = !data.adjacencyListIn[id] || data.adjacencyListIn[id].length === 0;
+                    if (isRoot) {
+                        url = "Seed document";
+                    }
                     const newNode = {
                         id: idStr,
                         label: url,
@@ -143,7 +146,8 @@ export class UpdateProcessor {
     getCounts() {
         return {
             nodes: this.knownNodesFull.size,
-            edges: this.nEdges
+            edges: this.nEdges,
+            uris: [...this.knownNodesFull.values()]
         };
     }
 }

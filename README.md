@@ -20,10 +20,17 @@ Traversed topologies are capped to around a 1000 nodes, as it would otherwise sl
 ```
 
 ## TODO:
-- [ ] Going directly towards a URL with details page without first coming from overview page makes it error as the url does not contain the correct
+- [ ] Going directly towards a URL with details without first coming from overview page makes it error as the url does not contain the correct
       starting point for link traversal query
-- [ ] Improve layout / readability?
-- [ ] Logger filter does not work properly it 1. can't filter out "determined first entry...." logs for binding join. 
+- [x] Logger filter does not work properly it 1. can't filter out "determined first entry...." logs for binding join. 
 Also that log doesn't show the entry properly. 2. It doesn't filter out things that should be filtered out. Probably something to do with async.
-- [ ] Authentication either through fake account or real authentication
+- [ ] Authentication through dropdown of fake accounts to show different performance profiles
 - [ ] Make a landing page
+- [x] Graph Legend
+- [ ] Query performance page with execution time + graph for result arrival times
+- [x] Count number of traversed pods
+- [ ] Fix performance issue clicking from Forums "Group for George_Clooney in Narathiwat" 
+- [ ] Add buttons to click through flexibally from any profile page
+
+## TODO for demo:
+- [ ] Allow different link traversal configurations (standard, adaptive, shape index, derived resources?) for possible demo at conference

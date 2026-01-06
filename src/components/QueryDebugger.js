@@ -1,7 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import TopologyGraph from './TopologyGraph.js';
-// ... (formatQuery helper remains the same) ...
 const formatQuery = (query) => {
     if (!query)
         return '';
@@ -21,31 +20,53 @@ const formatQuery = (query) => {
         .replace(/(&lt;https?:\/\/[^&]+&gt;)/g, '<span style="color: #98c379;">$1</span>')
         .replace(/\b([a-zA-Z0-9_-]+:[a-zA-Z0-9_-]+)\b/g, '<span style="color: #61afef;">$1</span>');
 };
-const QueryDebugger = ({ isOpen, onClose, currentQuery, logs, topology, processor, // Received from App.tsx
-isTrackingEnabled = true }) => {
+const countUniquePods = (uris) => {
+    const uniquePods = new Set();
+    const podRegex = /(.*\/pods\/\d+)/;
+    uris.forEach((uri) => {
+        const match = uri.match(podRegex);
+        if (match && match[1])
+            uniquePods.add(match[1]);
+    });
+    return uniquePods.size;
+};
+const getLogCategory = (message) => {
+    const msg = message.toLowerCase();
+    if (msg.includes('identified') ||
+        msg.includes('requesting') ||
+        msg.includes('source') ||
+        msg.includes('fetch') ||
+        msg.includes('dereferenc')) {
+        return 'traverse';
+    }
+    if (msg.includes('determined') ||
+        msg.includes('plan') ||
+        msg.includes('optim') ||
+        msg.includes('order')) {
+        return 'planning';
+    }
+    return 'general';
+};
+const QueryDebugger = ({ isOpen, onClose, currentQuery, logs, topology, processor, isTrackingEnabled = true }) => {
     const containerRef = useRef(null);
+    // --- FIX 2: Ref for scrolling ---
+    const logWindowRef = useRef(null);
     const [queryHeight, setQueryHeight] = useState(220);
     const [isResizing, setIsResizing] = useState(false);
-    // Force graph reset when clicking the tab again
     const [graphResetKey, setGraphResetKey] = useState(0);
-    // --- NEW: Local Stats State ---
-    const [stats, setStats] = useState({ nodes: 0, edges: 0 });
-    // --- NEW: Listen to Processor for Stats Updates ---
+    // Stats State
+    const [stats, setStats] = useState({ nodes: 0, edges: 0, uris: [] });
     useEffect(() => {
         if (!processor) {
-            setStats({ nodes: 0, edges: 0 });
+            setStats({ nodes: 0, edges: 0, uris: [] });
             return;
         }
-        // Initialize immediately
         setStats(processor.getCounts());
-        // Subscribe to changes. Whenever the graph updates (nodes added),
-        // we fetch the new total counts.
         const unsubscribe = processor.subscribe(() => {
             setStats(processor.getCounts());
         });
         return () => unsubscribe();
     }, [processor]);
-    // 1. PERSISTENCE: Initialize viewMode from LocalStorage
     const [viewMode, setViewMode] = useState(() => {
         const saved = localStorage.getItem('debugger_view_mode');
         return saved === 'graph' ? 'graph' : 'stats';
@@ -57,18 +78,39 @@ isTrackingEnabled = true }) => {
     const [showPlanning, setShowPlanning] = useState(() => JSON.parse(localStorage.getItem('debugger_filter_planning') || 'true'));
     useEffect(() => { localStorage.setItem('debugger_filter_traverse', JSON.stringify(showTraverse)); }, [showTraverse]);
     useEffect(() => { localStorage.setItem('debugger_filter_planning', JSON.stringify(showPlanning)); }, [showPlanning]);
+    // ---------------------------------------------------------
+    // OPTIMIZED FILTER LOGIC
+    // ---------------------------------------------------------
     const filteredLogs = useMemo(() => {
-        return logs.filter(log => {
-            const msg = log.message.trim();
-            const isTraverse = /^(Identified|Requesting)/i.test(msg) || msg.includes('Identified as');
-            const isPlanning = /^(Determined)/i.test(msg);
-            if (isTraverse && !showTraverse)
-                return false;
-            if (isPlanning && !showPlanning)
-                return false;
-            return true;
-        });
-    }, [logs, showTraverse, showPlanning]);
+        const result = [];
+        for (const log of logs) {
+            // Use central helper
+            const category = getLogCategory(log.message);
+            // Strict Filtering logic
+            if (category === 'traverse' && !showTraverse)
+                continue;
+            if (category === 'planning' && !showPlanning)
+                continue;
+            // Noise filter
+            if (log.message.includes('First entry'))
+                continue;
+            result.push({ ...log, category });
+        }
+        return result;
+    }, [logs, logs.length, showTraverse, showPlanning]); // Added logs.length
+    const displayLogs = filteredLogs.slice(-1000);
+    // --- FIX 3: Key Generation for Forced Remount ---
+    const filterKey = `filter-${showTraverse}-${showPlanning}-${displayLogs.length}`;
+    // Auto-scroll effect
+    useEffect(() => {
+        if (logWindowRef.current) {
+            setTimeout(() => {
+                if (logWindowRef.current) {
+                    logWindowRef.current.scrollTop = logWindowRef.current.scrollHeight;
+                }
+            }, 0);
+        }
+    }, [filterKey]);
     const startResizing = useCallback((e) => { e.preventDefault(); setIsResizing(true); }, []);
     const stopResizing = useCallback(() => setIsResizing(false), []);
     const resize = useCallback((e) => {
@@ -92,22 +134,16 @@ isTrackingEnabled = true }) => {
     const highlightedQuery = useMemo(() => formatQuery(currentQuery), [currentQuery]);
     const handleGraphTabClick = () => {
         setViewMode('graph');
-        // Increment reset key to force redraw even if already on graph view
         setGraphResetKey(prev => prev + 1);
     };
     if (!isOpen)
         return null;
-    return (_jsx("div", { ref: containerRef, style: { ...styles.sidebarContainer, userSelect: isResizing ? 'none' : 'auto', cursor: isResizing ? 'row-resize' : 'auto' }, children: _jsxs("div", { style: styles.content, children: [_jsxs("div", { style: styles.toolbar, children: [_jsx("div", { style: { ...styles.statusBadge, backgroundColor: isTrackingEnabled ? '#f0fdf4' : '#fef2f2', color: isTrackingEnabled ? '#16a34a' : '#dc2626', borderColor: isTrackingEnabled ? '#bbf7d0' : '#fecaca' }, children: isTrackingEnabled ? '● TRACKING ACTIVE' : '○ TRACKING PAUSED' }), _jsxs("div", { style: styles.filterGroup, children: [_jsxs("label", { style: styles.filterLabel, children: [_jsx("input", { type: "checkbox", checked: showTraverse, onChange: (e) => setShowTraverse(e.target.checked) }), " Traverse"] }), _jsxs("label", { style: styles.filterLabel, children: [_jsx("input", { type: "checkbox", checked: showPlanning, onChange: (e) => setShowPlanning(e.target.checked) }), " Planning"] })] })] }), (topology || processor) && (_jsxs("div", { style: styles.viewToggle, children: [_jsx("button", { onClick: () => setViewMode('stats'), style: viewMode === 'stats' ? styles.activeTab : styles.tab, title: "Show Logs and Query", children: "\uD83D\uDCDD Query & Logs" }), _jsx("button", { onClick: handleGraphTabClick, style: viewMode === 'graph' ? styles.activeTab : styles.tab, title: "Show Full Screen Topology (Click to Reset)", children: "\uD83D\uDD78\uFE0F Topology Graph" })] })), viewMode === 'graph' && processor ? (
-                // FULL HEIGHT GRAPH MODE
-                _jsx("div", { style: styles.fullGraphContainer, children: _jsx(TopologyGraph
-                    // Pass the processor instance directly
-                    , { 
-                        // Pass the processor instance directly
-                        processor: processor }, `${currentQuery}-${graphResetKey}`) })) : (
-                // STANDARD DEBUG MODE (Stats + Query + Logs)
-                _jsxs(_Fragment, { children: [processor && (_jsxs("div", { style: styles.topologyDashboard, children: [_jsxs("div", { style: styles.statBox, children: [_jsx("span", { style: styles.statLabel, children: "Total Nodes" }), _jsx("span", { style: styles.statValue, children: stats.nodes })] }), _jsxs("div", { style: styles.statBox, children: [_jsx("span", { style: styles.statLabel, children: "Total Edges" }), _jsx("span", { style: styles.statValue, children: stats.edges })] })] })), _jsxs("section", { style: { ...styles.querySection, height: queryHeight }, children: [_jsx("h3", { style: styles.sectionTitle, children: "SPARQL Query" }), _jsx("div", { style: styles.codeWrapper, children: _jsx("pre", { style: styles.codeBlock, dangerouslySetInnerHTML: { __html: highlightedQuery } }) })] }), _jsx("div", { onMouseDown: startResizing, style: { ...styles.resizer, backgroundColor: isResizing ? '#3b82f6' : 'transparent' }, children: _jsx("div", { style: styles.resizerHandle }) }), _jsxs("section", { style: styles.logSection, children: [_jsxs("h3", { style: styles.sectionTitle, children: ["Engine Logs (", filteredLogs.length, ")"] }), _jsx("div", { style: styles.logWindow, children: filteredLogs.length > 0 ? (filteredLogs.map((log) => (_jsxs("div", { style: styles.logLine, children: [_jsx("span", { style: styles.timestamp, children: log.timestamp }), _jsx("span", { style: { color: log.level === 'error' ? '#f87171' : log.level === 'warn' ? '#fbbf24' : '#e2e8f0', wordBreak: 'break-word' }, children: log.message })] }, log.id)))) : (_jsx("div", { style: styles.emptyLogs, children: "No logs match active filters..." })) })] })] }))] }) }));
+    return (_jsx("div", { ref: containerRef, style: { ...styles.sidebarContainer, userSelect: isResizing ? 'none' : 'auto', cursor: isResizing ? 'row-resize' : 'auto' }, children: _jsxs("div", { style: styles.content, children: [_jsxs("div", { style: styles.toolbar, children: [_jsx("div", { style: { ...styles.statusBadge, backgroundColor: isTrackingEnabled ? '#f0fdf4' : '#fef2f2', color: isTrackingEnabled ? '#16a34a' : '#dc2626', borderColor: isTrackingEnabled ? '#bbf7d0' : '#fecaca' }, children: isTrackingEnabled ? '● TRACKING ACTIVE' : '○ TRACKING PAUSED' }), _jsxs("div", { style: styles.filterGroup, children: [_jsxs("label", { style: styles.filterLabel, children: [_jsx("input", { type: "checkbox", checked: showTraverse, onChange: (e) => setShowTraverse(e.target.checked) }), " Traverse"] }), _jsxs("label", { style: styles.filterLabel, children: [_jsx("input", { type: "checkbox", checked: showPlanning, onChange: (e) => setShowPlanning(e.target.checked) }), " Planning"] })] })] }), (topology || processor) && (_jsxs("div", { style: styles.viewToggle, children: [_jsx("button", { onClick: () => setViewMode('stats'), style: viewMode === 'stats' ? styles.activeTab : styles.tab, children: "Query & Logs" }), _jsx("button", { onClick: handleGraphTabClick, style: viewMode === 'graph' ? styles.activeTab : styles.tab, children: "Topology Graph" })] })), viewMode === 'graph' && processor ? (_jsx("div", { style: styles.fullGraphContainer, children: _jsx(TopologyGraph, { processor: processor }, `${currentQuery}-${graphResetKey}`) })) : (_jsxs(_Fragment, { children: [processor && (_jsxs("div", { style: styles.topologyDashboard, children: [_jsxs("div", { style: styles.statBox, children: [_jsx("span", { style: styles.statLabel, children: "Total Documents" }), _jsx("span", { style: styles.statValue, children: stats.nodes })] }), _jsxs("div", { style: styles.statBox, children: [_jsx("span", { style: styles.statLabel, children: "Total Links" }), _jsx("span", { style: styles.statValue, children: stats.edges })] }), _jsxs("div", { style: styles.statBox, children: [_jsx("span", { style: styles.statLabel, children: "Total Unique Pods" }), _jsx("span", { style: styles.statValue, children: countUniquePods(stats.uris) })] })] })), _jsxs("section", { style: { ...styles.querySection, height: queryHeight }, children: [_jsx("h3", { style: styles.sectionTitle, children: "SPARQL Query" }), _jsx("div", { style: styles.codeWrapper, children: _jsx("pre", { style: styles.codeBlock, dangerouslySetInnerHTML: { __html: highlightedQuery } }) })] }), _jsx("div", { onMouseDown: startResizing, style: { ...styles.resizer, backgroundColor: isResizing ? '#3b82f6' : 'transparent' }, children: _jsx("div", { style: styles.resizerHandle }) }), _jsxs("section", { style: styles.logSection, children: [_jsxs("h3", { style: styles.sectionTitle, children: ["Engine Logs (", filteredLogs.length, "), showing last ", displayLogs.length] }), _jsx("div", { ref: logWindowRef, style: styles.logWindow, children: displayLogs.length > 0 ? (displayLogs.map((log, index) => (_jsxs("div", { style: styles.logLine, children: [log.category !== 'general' && (_jsx("span", { style: {
+                                                    ...styles.categoryBadge,
+                                                    backgroundColor: log.category === 'traverse' ? '#3b82f6' : '#8b5cf6'
+                                                }, children: log.category === 'traverse' ? 'TRAV' : 'PLAN' })), _jsx("span", { style: styles.timestamp, children: log.timestamp }), _jsx("span", { style: { color: log.level === 'error' ? '#f87171' : log.level === 'warn' ? '#fbbf24' : '#e2e8f0', wordBreak: 'break-word' }, children: log.message })] }, `${log.id}-${index}`)))) : (_jsx("div", { style: styles.emptyLogs, children: "No logs match active filters..." })) }, filterKey)] })] }))] }) }));
 };
-// ... (styles remain exactly the same) ...
+// ... Styles
 const styles = {
     sidebarContainer: { display: 'flex', flexDirection: 'column', height: '100%', width: '100%', background: '#ffffff', borderLeft: '1px solid #e2e8f0', overflow: 'hidden' },
     content: { padding: '1rem', display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' },
@@ -131,9 +167,11 @@ const styles = {
     resizerHandle: { width: '30px', height: '3px', borderRadius: '2px', background: '#e2e8f0' },
     logSection: { display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1, minHeight: 0 },
     logWindow: { flex: 1, background: '#0f172a', color: '#94a3b8', padding: '12px', borderRadius: '6px', fontSize: '0.75rem', overflowY: 'auto', fontFamily: 'monospace' },
-    logLine: { margin: '4px 0', display: 'flex', gap: '10px', borderBottom: '1px solid #1e293b', paddingBottom: '2px' },
-    timestamp: { color: '#475569', fontSize: '0.6rem', flexShrink: 0 },
-    emptyLogs: { opacity: 0.5, padding: '20px', textAlign: 'center', fontSize: '0.8rem' }
+    logLine: { margin: '4px 0', display: 'flex', gap: '10px', borderBottom: '1px solid #1e293b', paddingBottom: '2px', alignItems: 'center' },
+    timestamp: { color: '#475569', fontSize: '0.6rem', flexShrink: 0, minWidth: '40px' },
+    emptyLogs: { opacity: 0.5, padding: '20px', textAlign: 'center', fontSize: '0.8rem' },
+    // Added style for the new badge
+    categoryBadge: { fontSize: '0.5rem', padding: '1px 4px', borderRadius: '3px', color: '#fff', fontWeight: 'bold', marginRight: '6px', letterSpacing: '0.5px' }
 };
 export default QueryDebugger;
 //# sourceMappingURL=QueryDebugger.js.map

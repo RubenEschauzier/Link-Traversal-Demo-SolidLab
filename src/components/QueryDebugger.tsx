@@ -10,6 +10,12 @@ interface TopologyData {
   [key: string]: any; 
 }
 
+interface GraphStats {
+  nodes: number;
+  edges: number;
+  uris: string[];
+}
+
 interface LogEntry {
   id: number;
   message: string;
@@ -22,17 +28,11 @@ interface QueryDebuggerProps {
   onClose: () => void;
   currentQuery: string;
   logs: LogEntry[];
-  
-  // Stats (Numbers)
   topology: TopologyData | null;
-  
-  // Graph Logic (Class Instance)
   processor: UpdateProcessor | null;
-  
   isTrackingEnabled?: boolean;
 }
 
-// ... (formatQuery helper remains the same) ...
 const formatQuery = (query: string) => {
   if (!query) return '';
   const lines = query.split('\n');
@@ -51,44 +51,76 @@ const formatQuery = (query: string) => {
     .replace(/\b([a-zA-Z0-9_-]+:[a-zA-Z0-9_-]+)\b/g, '<span style="color: #61afef;">$1</span>');
 };
 
+const countUniquePods = (uris: string[]): number => {
+  const uniquePods = new Set<string>();
+  const podRegex = /(.*\/pods\/\d+)/;
+  uris.forEach((uri) => {
+    const match = uri.match(podRegex);
+    if (match && match[1]) uniquePods.add(match[1]);
+  });
+  return uniquePods.size;
+};
+
+// --- FIX 1: Centralized Logic ---
+type LogCategory = 'traverse' | 'planning' | 'general';
+
+const getLogCategory = (message: string): LogCategory => {
+  const msg = message.toLowerCase();
+  
+  if (
+    msg.includes('identified') || 
+    msg.includes('requesting') || 
+    msg.includes('source') || 
+    msg.includes('fetch') || 
+    msg.includes('dereferenc')
+  ) {
+    return 'traverse';
+  }
+
+  if (
+    msg.includes('determined') || 
+    msg.includes('plan') || 
+    msg.includes('optim') || 
+    msg.includes('order')
+  ) {
+    return 'planning';
+  }
+
+  return 'general';
+};
+
 const QueryDebugger: React.FC<QueryDebuggerProps> = ({
   isOpen,
   onClose,
   currentQuery,
   logs,
   topology,
-  processor, // Received from App.tsx
+  processor,
   isTrackingEnabled = true
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  // --- FIX 2: Ref for scrolling ---
+  const logWindowRef = useRef<HTMLDivElement>(null);
+  
   const [queryHeight, setQueryHeight] = useState(220);
   const [isResizing, setIsResizing] = useState(false);
-  
-  // Force graph reset when clicking the tab again
   const [graphResetKey, setGraphResetKey] = useState(0);
 
-  // --- NEW: Local Stats State ---
-  const [stats, setStats] = useState({ nodes: 0, edges: 0 });
-  // --- NEW: Listen to Processor for Stats Updates ---
+  // Stats State
+  const [stats, setStats] = useState<GraphStats>({ nodes: 0, edges: 0, uris: [] });
+
   useEffect(() => {
     if (!processor) {
-      setStats({ nodes: 0, edges: 0 });
+      setStats({ nodes: 0, edges: 0, uris: [] });
       return;
     }
-
-    // Initialize immediately
     setStats(processor.getCounts());
-
-    // Subscribe to changes. Whenever the graph updates (nodes added),
-    // we fetch the new total counts.
     const unsubscribe = processor.subscribe(() => {
        setStats(processor.getCounts());
     });
-
     return () => unsubscribe();
   }, [processor]);
 
-  // 1. PERSISTENCE: Initialize viewMode from LocalStorage
   const [viewMode, setViewMode] = useState<'stats' | 'graph'>(() => {
     const saved = localStorage.getItem('debugger_view_mode');
     return saved === 'graph' ? 'graph' : 'stats';
@@ -104,16 +136,43 @@ const QueryDebugger: React.FC<QueryDebuggerProps> = ({
   useEffect(() => { localStorage.setItem('debugger_filter_traverse', JSON.stringify(showTraverse)); }, [showTraverse]);
   useEffect(() => { localStorage.setItem('debugger_filter_planning', JSON.stringify(showPlanning)); }, [showPlanning]);
 
+  // ---------------------------------------------------------
+  // OPTIMIZED FILTER LOGIC
+  // ---------------------------------------------------------
   const filteredLogs = useMemo(() => {
-    return logs.filter(log => {
-      const msg = log.message.trim();
-      const isTraverse = /^(Identified|Requesting)/i.test(msg) || msg.includes('Identified as');
-      const isPlanning = /^(Determined)/i.test(msg);
-      if (isTraverse && !showTraverse) return false;
-      if (isPlanning && !showPlanning) return false;
-      return true;
-    });
-  }, [logs, showTraverse, showPlanning]);
+    const result = [];
+    
+    for (const log of logs) {
+      // Use central helper
+      const category = getLogCategory(log.message);
+
+      // Strict Filtering logic
+      if (category === 'traverse' && !showTraverse) continue;
+      if (category === 'planning' && !showPlanning) continue;
+
+      // Noise filter
+      if (log.message.includes('First entry')) continue;
+
+      result.push({ ...log, category });
+    }
+    return result;
+  }, [logs, logs.length, showTraverse, showPlanning]); // Added logs.length
+
+  const displayLogs = filteredLogs.slice(-1000);
+
+  // --- FIX 3: Key Generation for Forced Remount ---
+  const filterKey = `filter-${showTraverse}-${showPlanning}-${displayLogs.length}`;
+
+  // Auto-scroll effect
+  useEffect(() => {
+    if (logWindowRef.current) {
+        setTimeout(() => {
+            if (logWindowRef.current) {
+                logWindowRef.current.scrollTop = logWindowRef.current.scrollHeight;
+            }
+        }, 0);
+    }
+  }, [filterKey]);
 
   const startResizing = useCallback((e: React.MouseEvent) => { e.preventDefault(); setIsResizing(true); }, []);
   const stopResizing = useCallback(() => setIsResizing(false), []);
@@ -140,7 +199,6 @@ const QueryDebugger: React.FC<QueryDebuggerProps> = ({
 
   const handleGraphTabClick = () => {
     setViewMode('graph');
-    // Increment reset key to force redraw even if already on graph view
     setGraphResetKey(prev => prev + 1);
   };
 
@@ -150,7 +208,6 @@ const QueryDebugger: React.FC<QueryDebuggerProps> = ({
     <div ref={containerRef} style={{...styles.sidebarContainer, userSelect: isResizing ? 'none' : 'auto', cursor: isResizing ? 'row-resize' : 'auto'}}>
       <div style={styles.content}>
         
-        {/* HEADER AREA */}
         <div style={styles.toolbar}>
           <div style={{...styles.statusBadge, backgroundColor: isTrackingEnabled ? '#f0fdf4' : '#fef2f2', color: isTrackingEnabled ? '#16a34a' : '#dc2626', borderColor: isTrackingEnabled ? '#bbf7d0' : '#fecaca'}}>
             {isTrackingEnabled ? '● TRACKING ACTIVE' : '○ TRACKING PAUSED'}
@@ -161,55 +218,32 @@ const QueryDebugger: React.FC<QueryDebuggerProps> = ({
           </div>
         </div>
 
-        {/* VIEW TOGGLE */}
-        {/* Show if either stats or processor exists */}
         {(topology || processor) && (
           <div style={styles.viewToggle}>
-            <button 
-              onClick={() => setViewMode('stats')} 
-              style={viewMode === 'stats' ? styles.activeTab : styles.tab}
-              title="Show Logs and Query"
-            >
-              📝 Query & Logs
-            </button>
-            <button 
-              onClick={handleGraphTabClick} 
-              style={viewMode === 'graph' ? styles.activeTab : styles.tab}
-              title="Show Full Screen Topology (Click to Reset)"
-            >
-              🕸️ Topology Graph
-            </button>
+            <button onClick={() => setViewMode('stats')} style={viewMode === 'stats' ? styles.activeTab : styles.tab}>Query & Logs</button>
+            <button onClick={handleGraphTabClick} style={viewMode === 'graph' ? styles.activeTab : styles.tab}>Topology Graph</button>
           </div>
         )}
 
-        {/* 3. CONDITIONAL RENDER: FULL GRAPH vs STANDARD VIEW */}
         {viewMode === 'graph' && processor ? (
-          // FULL HEIGHT GRAPH MODE
           <div style={styles.fullGraphContainer}>
-            <TopologyGraph 
-                // Pass the processor instance directly
-                processor={processor}
-
-                // KEY CHANGE: Combining query + reset key ensures:
-                // 1. Reset when query changes
-                // 2. Reset when tab is toggled or clicked again
-                key={`${currentQuery}-${graphResetKey}`}
-            />
+            <TopologyGraph processor={processor} key={`${currentQuery}-${graphResetKey}`} />
           </div>
         ) : (
-          // STANDARD DEBUG MODE (Stats + Query + Logs)
           <>
             {processor && (
               <div style={styles.topologyDashboard}>
                 <div style={styles.statBox}>
-                  <span style={styles.statLabel}>Total Nodes</span>
-                  {/* Show Node Count */}
+                  <span style={styles.statLabel}>Total Documents</span>
                   <span style={styles.statValue}>{stats.nodes}</span>
                 </div>
                 <div style={styles.statBox}>
-                  <span style={styles.statLabel}>Total Edges</span>
-                  {/* Show Edge Count */}
+                  <span style={styles.statLabel}>Total Links</span>
                   <span style={styles.statValue}>{stats.edges}</span>
+                </div>
+                <div style={styles.statBox}>
+                  <span style={styles.statLabel}>Total Unique Pods</span>
+                  <span style={styles.statValue}>{countUniquePods(stats.uris)}</span>
                 </div>
               </div>
             )}
@@ -225,11 +259,25 @@ const QueryDebugger: React.FC<QueryDebuggerProps> = ({
             </div>
 
             <section style={styles.logSection}>
-              <h3 style={styles.sectionTitle}>Engine Logs ({filteredLogs.length})</h3>
-              <div style={styles.logWindow}>
-                {filteredLogs.length > 0 ? (
-                  filteredLogs.map((log) => (
-                    <div key={log.id} style={styles.logLine}>
+              <h3 style={styles.sectionTitle}>
+                Engine Logs ({filteredLogs.length}), showing last {displayLogs.length}
+              </h3>
+              
+              {/* --- FIX 4: Applied Key and Ref here --- */}
+              <div ref={logWindowRef} key={filterKey} style={styles.logWindow}>
+                {displayLogs.length > 0 ? (
+                  displayLogs.map((log: any, index: number) => (
+                    <div key={`${log.id}-${index}`} style={styles.logLine}>
+                      {/* Optional Badge to visualize filtering */}
+                      {log.category !== 'general' && (
+                        <span style={{
+                            ...styles.categoryBadge,
+                            backgroundColor: log.category === 'traverse' ? '#3b82f6' : '#8b5cf6'
+                        }}>
+                            {log.category === 'traverse' ? 'TRAV' : 'PLAN'}
+                        </span>
+                      )}
+                      
                       <span style={styles.timestamp}>{log.timestamp}</span>
                       <span style={{ color: log.level === 'error' ? '#f87171' : log.level === 'warn' ? '#fbbf24' : '#e2e8f0', wordBreak: 'break-word'}}>
                         {log.message}
@@ -248,7 +296,7 @@ const QueryDebugger: React.FC<QueryDebuggerProps> = ({
   );
 };
 
-// ... (styles remain exactly the same) ...
+// ... Styles
 const styles: { [key: string]: CSSProperties } = {
   sidebarContainer: { display: 'flex', flexDirection: 'column', height: '100%', width: '100%', background: '#ffffff', borderLeft: '1px solid #e2e8f0', overflow: 'hidden' },
   content: { padding: '1rem', display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' },
@@ -256,15 +304,11 @@ const styles: { [key: string]: CSSProperties } = {
   statusBadge: { padding: '6px 10px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 800, border: '1px solid', letterSpacing: '0.05em' },
   filterGroup: { display: 'flex', gap: '0.8rem' },
   filterLabel: { fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '4px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' },
-  
   viewToggle: { display: 'flex', gap: '8px', marginBottom: '8px', flexShrink: 0 },
   tab: { background: 'none', border: '1px solid #e2e8f0', padding: '6px 14px', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer', color: '#64748b' },
   activeTab: { background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '6px 14px', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer', color: '#1e293b', fontWeight: 'bold', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' },
-  
   fullGraphContainer: { flex: 1, background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0', overflow: 'hidden', minHeight: 0 },
-
   topologyDashboard: { display: 'flex', gap: '1rem', background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0', marginBottom: '1rem', flexShrink: 0 },
-  
   statBox: { display: 'flex', flexDirection: 'column' },
   statLabel: { fontSize: '0.6rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800 },
   statValue: { fontSize: '1.1rem', fontWeight: 800, fontFamily: 'monospace', color: '#1e293b' },
@@ -276,9 +320,11 @@ const styles: { [key: string]: CSSProperties } = {
   resizerHandle: { width: '30px', height: '3px', borderRadius: '2px', background: '#e2e8f0' },
   logSection: { display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1, minHeight: 0 },
   logWindow: { flex: 1, background: '#0f172a', color: '#94a3b8', padding: '12px', borderRadius: '6px', fontSize: '0.75rem', overflowY: 'auto', fontFamily: 'monospace' },
-  logLine: { margin: '4px 0', display: 'flex', gap: '10px', borderBottom: '1px solid #1e293b', paddingBottom: '2px' },
-  timestamp: { color: '#475569', fontSize: '0.6rem', flexShrink: 0 },
-  emptyLogs: { opacity: 0.5, padding: '20px', textAlign: 'center', fontSize: '0.8rem' }
+  logLine: { margin: '4px 0', display: 'flex', gap: '10px', borderBottom: '1px solid #1e293b', paddingBottom: '2px', alignItems: 'center' },
+  timestamp: { color: '#475569', fontSize: '0.6rem', flexShrink: 0, minWidth: '40px' },
+  emptyLogs: { opacity: 0.5, padding: '20px', textAlign: 'center', fontSize: '0.8rem' },
+  // Added style for the new badge
+  categoryBadge: { fontSize: '0.5rem', padding: '1px 4px', borderRadius: '3px', color: '#fff', fontWeight: 'bold', marginRight: '6px', letterSpacing: '0.5px' }
 };
 
 export default QueryDebugger;
