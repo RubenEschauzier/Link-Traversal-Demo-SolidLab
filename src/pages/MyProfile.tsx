@@ -148,6 +148,7 @@ export const Profile: React.FC<ProfileProps> = (
   }
 ) => {
   const activeStream = useRef<BindingsStream | null>(null);
+  const backgroundStreams = useRef<BindingsStream[]>([]);
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
@@ -162,10 +163,21 @@ export const Profile: React.FC<ProfileProps> = (
       activeStream.current.destroy();
       activeStream.current = null;
     }
+    backgroundStreams.current.forEach(stream => {
+      try {
+        stream.destroy();
+      } catch (e) {
+        // Ignore errors if stream is already closed
+      }
+    });
+    backgroundStreams.current = []; // Clear the array
     // IMPORTANT: Clear the UI logs in the parent when we stop a query manually
     setDebugQuery(""); 
   };
-
+  const handleNavigation = (path: string, state: any) => {
+    stopQuery(); // 1. Kill all network requests and listeners IMMEDIATELY
+    navigate(path, { state }); // 2. Then switch pages
+  };
   // Cleanup on unmount
   useEffect(() => {
     return () => stopQuery();
@@ -264,9 +276,13 @@ export const Profile: React.FC<ProfileProps> = (
         // Background query for member count
         const countQuery = QUERY_MEMBER_COUNT.replace('FORUM_IRI', forumIri);
         executeTraversalQuery(countQuery, { traverse: false }, 2).then(countBs => {
+          backgroundStreams.current.push(countBs);
           countBs.on('data', (countBinding: any) => {
             const count = parseInt(countBinding.get('count').value);
             setForums(curr => curr.map(f => f.uri === forumIri ? { ...f, memberCount: count } : f));
+          });
+          countBs.on('end', () => {
+            backgroundStreams.current = backgroundStreams.current.filter(s => s !== countBs);
           });
         });
       });
@@ -407,7 +423,7 @@ export const Profile: React.FC<ProfileProps> = (
                     {forum.memberCount === -1 ? "⏳ Counting..." : `👥 ${forum.memberCount} Members`}
                   </p>
                   <button className="btn-outline-sm"
-                    onClick={() => navigate(`/forums/${forum.id}`, { state: { forumUri: forum.uri } })}
+                    onClick={() => handleNavigation(`/forums/${forum.id}`, { forumUri: forum.uri })}
                   >
                     View Forum
                   </button>    
@@ -428,7 +444,7 @@ export const Profile: React.FC<ProfileProps> = (
                   <h3 className="friend-name">{friend.firstName} {friend.lastName}</h3>
                   <p className="friend-city">📍 {friend.city}</p>
                   <button className="btn-outline-sm"
-                    onClick={() => navigate(`/profiles/${friend.id}`, { state: { personUri: friend.friendCard } })}
+                    onClick={() => handleNavigation(`/profiles/${friend.id}`, { personUri: friend.friendCard })}
                    >
                     View Profile</button>
                 </div>
@@ -440,3 +456,5 @@ export const Profile: React.FC<ProfileProps> = (
     </div>
   );
 };
+
+

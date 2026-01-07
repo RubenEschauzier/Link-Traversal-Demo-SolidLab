@@ -31,7 +31,7 @@ Also that log doesn't show the entry properly. 2. It doesn't filter out things t
 - [x] Count number of traversed pods
 - [x] Rename nodes / edges
 - [x] Allow user to stop queries
-- [ ] Fix performance issue clicking from Forums "Group for George_Clooney in Narathiwat" 
+- [x] Fix performance issue clicking from Forums "Group for George_Clooney in Narathiwat" 
 - [ ] Add buttons to click through flexibally from any profile page
 
 ## TODO for demo:
