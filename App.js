@@ -2,15 +2,14 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { HashRouter as Router, Routes, Route, Link, useNavigate } from 'react-router-dom';
 import { StatisticTraversalTopology } from '@rubeneschauzier/statistic-traversal-topology';
-import { Profile } from './src/pages/MyProfile.js';
 import { ForumDetail } from './src/pages/ForumDetail.js';
-import { UserProfileDetail } from './src/pages/ProfileDetail.js';
 import QueryDebugger from './src/components/QueryDebugger.js';
 import { AuthProvider, useAuth } from './src/context/AuthContext.js';
 import { ReactTraversalLogger } from './src/api/queryEngineStub.js';
 import { StatisticLinkDiscovery } from '@comunica/statistic-link-discovery';
 import { StatisticLinkDereference } from '@comunica/statistic-link-dereference';
 import { UpdateProcessor } from './src/api/UpdateProcessor.js';
+import { Profile } from './src/pages/Profile.js';
 // --- 1. PREDEFINED USERS FOR DROPDOWN ---
 const PREDEFINED_USERS = [
     {
@@ -294,7 +293,7 @@ const App = () => {
                                 transition: 'flex 0.4s ease-in-out',
                                 borderRight: isDebugOpen ? '1px solid #e2e8f0' : 'none',
                                 minWidth: isDebugOpen ? '300px' : '100%'
-                            }, children: _jsxs(Routes, { children: [_jsx(Route, { path: "/", element: _jsx(LandingPage, {}) }), _jsx(Route, { path: "/profile", element: _jsx(Profile, { setDebugQuery: handleSetQuery, logger: isTrackingEnabled ? traversalLogger : undefined, createTracker: createTopologyTracker, onQueryStart: handleQueryStart, onQueryEnd: handleQueryEnd, onResultArrived: handleResultArrival, registerQuery: registerQueryStream }) }), _jsx(Route, { path: "/forums/:id", element: _jsx(ForumDetail, { setDebugQuery: handleSetQuery, logger: isTrackingEnabled ? traversalLogger : undefined, createTracker: createTopologyTracker, onQueryStart: handleQueryStart, onQueryEnd: handleQueryEnd, onResultArrived: handleResultArrival, registerQuery: registerQueryStream }) }), _jsx(Route, { path: "/profiles/:id", element: _jsx(UserProfileDetail, { setDebugQuery: handleSetQuery, logger: isTrackingEnabled ? traversalLogger : undefined, createTracker: createTopologyTracker, onQueryStart: handleQueryStart, onQueryEnd: handleQueryEnd, onResultArrived: handleResultArrival, registerQuery: registerQueryStream }) }), _jsx(Route, { path: "*", element: _jsx("div", { style: { padding: '2rem' }, children: _jsx("h2", { children: "404" }) }) })] }) }), _jsx("aside", { style: {
+                            }, children: _jsxs(Routes, { children: [_jsx(Route, { path: "/", element: _jsx(LandingPage, {}) }), _jsx(Route, { path: "/profile", element: _jsx(Profile, { setDebugQuery: handleSetQuery, logger: isTrackingEnabled ? traversalLogger : undefined, createTracker: createTopologyTracker, onQueryStart: handleQueryStart, onQueryEnd: handleQueryEnd, onResultArrived: handleResultArrival, registerQuery: registerQueryStream }) }), _jsx(Route, { path: "/forums/:id", element: _jsx(ForumDetail, { setDebugQuery: handleSetQuery, logger: isTrackingEnabled ? traversalLogger : undefined, createTracker: createTopologyTracker, onQueryStart: handleQueryStart, onQueryEnd: handleQueryEnd, onResultArrived: handleResultArrival, registerQuery: registerQueryStream }) }), _jsx(Route, { path: "/profiles/:id", element: _jsx(Profile, { setDebugQuery: handleSetQuery, logger: isTrackingEnabled ? traversalLogger : undefined, createTracker: createTopologyTracker, onQueryStart: handleQueryStart, onQueryEnd: handleQueryEnd, onResultArrived: handleResultArrival, registerQuery: registerQueryStream }) }), _jsx(Route, { path: "*", element: _jsx("div", { style: { padding: '2rem' }, children: _jsx("h2", { children: "404" }) }) })] }) }), _jsx("aside", { style: {
                                 flex: isDebugOpen ? 6 : 0,
                                 display: 'flex',
                                 flexDirection: 'column',

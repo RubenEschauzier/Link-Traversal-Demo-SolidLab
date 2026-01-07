@@ -1,8 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { executeTraversalQuery, ReactTraversalLogger } from '../api/queryEngineStub.js';
 import type { BindingsStream } from '@comunica/types';
-import { StatisticTraversalTopology } from '@rubeneschauzier/statistic-traversal-topology';
 import type { StatisticLinkDiscovery } from '@comunica/statistic-link-discovery';
 import type { StatisticLinkDereference } from '@comunica/statistic-link-dereference';
 
@@ -43,7 +42,28 @@ export const ForumDetail: React.FC<ForumProps> = (
 ) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const forumUri = location.state?.forumUri;
+
+  // "id" here is actually the ENCODED URI (e.g. https%3A%2F%2F...)
+  const { id } = useParams(); 
+
+  // 1. CALCULATE SUBJECT URI
+  const forumUri = useMemo(() => {
+    // Priority 1: Navigation State (Fastest)
+    if (location.state?.forumUri){
+      return location.state.forumUri
+    }
+    // Priority 2: Decode from URL (Handles Refresh)
+    if (id) {
+      try {
+        return decodeURIComponent(id);
+      } catch (e) {
+        console.error("Failed to decode Forum URI", e);
+        return "";
+      }
+    }
+    return "";
+  }, [id, location.state]);
+
   const activeStream = useRef<BindingsStream | null>(null);
 
   const [title, setTitle] = useState('');
@@ -51,9 +71,19 @@ export const ForumDetail: React.FC<ForumProps> = (
   const [messagesMap, setMessagesMap] = useState<Record<string, Message>>({});
   const [isLoading, setIsLoading] = useState(true);
 
+  // --- Helper: Safe Navigation to Profiles ---
+  const goToProfile = (authorId: string, authorUri: string) => {
+    // Clean ID navigation (relies on the Profile component's ID reconstruction)
+    navigate(`/profiles/${authorId}`, { state: { personUri: authorUri } });
+  };
+
   useEffect(() => {
     const fetchForumData = async () => {
-      if (!forumUri) return;
+      // If we still don't have a URI (e.g. bad encoding), stop here
+      if (!forumUri) {
+        setIsLoading(false);
+        return;
+      }
 
       const queryModerator = `
         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
@@ -67,6 +97,7 @@ export const ForumDetail: React.FC<ForumProps> = (
                     snvoc:lastName ?lName.
             }
         }`;
+
       const queryMessages = `
         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
         PREFIX snvoc: <https://solidbench.linkeddatafragments.org/www.ldbc.eu/ldbc_socialnet/1.0/vocabulary/>
@@ -82,20 +113,23 @@ export const ForumDetail: React.FC<ForumProps> = (
                   snvoc:id ?id.
         }`;
 
-
-
       setDebugQuery(queryModerator + "\n\n\n" + queryMessages);
+      onQueryStart();
 
       try {
+        // 1. Fetch Moderator info (No Traversal needed usually, just dereference forum)
         const bsMods: BindingsStream = await executeTraversalQuery(queryModerator,
              {traverse: "false", log: logger }, undefined);
+             
         bsMods.on('data', (binding) => {
+          onResultArrived();
           if (binding.has('title')) setTitle(binding.get('title').value);
           if (binding.has('fName') && binding.has('lName')) {
             setModerator(`${binding.get('fName').value} ${binding.get('lName').value}`);
           }
-          setIsLoading(false);
-        })
+        });
+
+        // 2. Fetch Messages (Needs Traversal)
         const trackers = createTracker();
         let context = {log: logger};
         if (trackers){
@@ -105,11 +139,13 @@ export const ForumDetail: React.FC<ForumProps> = (
             [trackers.trackerDereference.key.name]: trackers.trackerDereference,
           };
         }
+        
         const bsMessages: BindingsStream = await executeTraversalQuery(queryMessages, context, 2);
         activeStream.current = bsMessages;
         registerQuery([bsMods, bsMessages], setIsLoading);
 
         bsMessages.on('data', (binding) => {
+          onResultArrived();
           const msgUri = binding.get('msg').value;
           const content = binding.has('content') ? binding.get('content').value : '';
           const file = binding.has('file') ? binding.get('file').value : '';
@@ -117,6 +153,7 @@ export const ForumDetail: React.FC<ForumProps> = (
           const authorUri = binding.get('person').value;
           const authorFullName = `${binding.get('authorName').value} ${binding.get('authorLastName').value}`;
           const authorId = `${binding.get('id').value}`;
+          
           setMessagesMap((prev) => {
             const existing = prev[msgUri] || { 
               uri: msgUri, 
@@ -141,7 +178,11 @@ export const ForumDetail: React.FC<ForumProps> = (
           setIsLoading(false);
         });
 
-        bsMessages.on('end', () => setIsLoading(false));
+        bsMessages.on('end', () => {
+          setIsLoading(false);
+          onQueryEnd();
+        });
+
       } catch (err) {
         console.error("Forum query failed", err);
         setIsLoading(false);
@@ -162,11 +203,16 @@ export const ForumDetail: React.FC<ForumProps> = (
   return (
     <div className="container" style={{ maxWidth: '800px', margin: '20px auto', padding: '0 20px' }}>
       <button className="btn-primary" onClick={() => navigate(-1)} style={{ marginBottom: '20px' }}>
-        ← Back to Profile
+        ← Back
       </button>
 
-      {isLoading && sortedMessages.length === 0 ? (
-        <div className="card loading-pulse">Searching for forum messages...</div>
+      {!forumUri ? (
+         <div className="card">❌ Error: Invalid Forum Link</div>
+      ) : isLoading && sortedMessages.length === 0 ? (
+        <div className="card loading-pulse">
+            <div className="spinner"></div>
+            Searching for forum messages...
+        </div>
       ) : (
         <>
           <div className="card forum-header-card">
@@ -174,6 +220,9 @@ export const ForumDetail: React.FC<ForumProps> = (
             <p className="forum-mod">
               🛡️ Moderator: <strong>{moderator || 'None'}</strong>
             </p>
+            <div style={{fontSize:'0.75rem', color:'#999', marginTop: '5px', wordBreak: 'break-all'}}>
+               Source: {forumUri}
+            </div>
           </div>
 
           <div className="message-list">
@@ -182,14 +231,19 @@ export const ForumDetail: React.FC<ForumProps> = (
               <div 
                 key={msg.uri} 
                 className="card message-card" 
-                style={{ marginBottom: '15px', padding: '20px', cursor: 'pointer' }}
+                style={{ marginBottom: '15px', padding: '20px' }}
               >
-                {/* Author Info */}
+                {/* Author Info - Clickable */}
                 <div 
                   className="author-link"
-                  style={{ fontWeight: 'bold', color: '#2563eb', marginBottom: '8px', display: 'inline-block' }}
-                  onClick={() => navigate(`/profiles/${msg.authorid}`, { state: { personUri: msg.authorUri } })}
-
+                  style={{ 
+                    fontWeight: 'bold', 
+                    color: '#2563eb', 
+                    marginBottom: '8px', 
+                    display: 'inline-block',
+                    cursor: 'pointer' 
+                  }}
+                  onClick={() => goToProfile(msg.authorid, msg.authorUri)}
                 >
                   👤 {msg.authorName}
                 </div>

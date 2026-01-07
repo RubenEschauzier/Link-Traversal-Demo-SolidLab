@@ -1,9 +1,16 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { executeTraversalQuery, ReactTraversalLogger } from '../api/queryEngineStub.js';
 import { useAuth } from '../context/AuthContext.js';
 import '../index.css';
+// --- HELPER: SolidBench ID Reconstruction ---
+// This allows us to use clean URLs like /profiles/933
+const reconstructUriFromId = (shortId) => {
+    // SolidBench IDs are zero-padded to 20 digits
+    const paddedId = shortId.padStart(20, '0');
+    return `https://solidbench.linkeddatafragments.org/pods/${paddedId}/profile/card#me`;
+};
 // --- SPARQL Queries ---
 const QUERY_MY_FRIENDS = `
   PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
@@ -55,11 +62,9 @@ const QUERY_MEMBER_COUNT = `
     <FORUM_IRI> snvoc:hasMember ?member.
   }
 `;
-// --- Logic Helpers ---
 const processProfileBinding = (binding, prev) => {
     const email = binding.get('email').value;
     const interest = binding.get('interestName').value;
-    // If we haven't started building the profile yet, create the base
     if (!prev) {
         return {
             name: binding.get('firstName').value,
@@ -73,13 +78,8 @@ const processProfileBinding = (binding, prev) => {
             interests: [interest]
         };
     }
-    // Accumulate unique interests and emails
-    const updatedInterests = prev.interests.includes(interest)
-        ? prev.interests
-        : [...prev.interests, interest];
-    const updatedEmails = prev.email.includes(email)
-        ? prev.email
-        : `${prev.email}, ${email}`;
+    const updatedInterests = prev.interests.includes(interest) ? prev.interests : [...prev.interests, interest];
+    const updatedEmails = prev.email.includes(email) ? prev.email : `${prev.email}, ${email}`;
     return { ...prev, interests: updatedInterests, email: updatedEmails };
 };
 export const Profile = ({ setDebugQuery, logger, createTracker, onQueryStart, onQueryEnd, onResultArrived, registerQuery, }) => {
@@ -87,6 +87,22 @@ export const Profile = ({ setDebugQuery, logger, createTracker, onQueryStart, on
     const backgroundStreams = useRef([]);
     const { user, isAuthenticated } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
+    const { id } = useParams(); // Gets "933" from URL
+    // 1. CALCULATE SUBJECT URI
+    const subjectUri = useMemo(() => {
+        // Priority 1: Navigation State (Fastest - passed from previous click)
+        if (location.state?.personUri) {
+            return location.state.personUri;
+        }
+        // Priority 2: Reconstruct from ID (Handles Refresh / Deep Link)
+        if (id) {
+            return reconstructUriFromId(id);
+        }
+        // Priority 3: Logged in User (Default /profile route)
+        return user?.username;
+    }, [id, location.state, user]);
+    const isOwnProfile = subjectUri === user?.username;
     const [profileData, setProfileData] = useState(null);
     const [forums, setForums] = useState([]);
     const [friends, setFriends] = useState([]);
@@ -101,32 +117,42 @@ export const Profile = ({ setDebugQuery, logger, createTracker, onQueryStart, on
             try {
                 stream.destroy();
             }
-            catch (e) {
-                // Ignore errors if stream is already closed
-            }
+            catch (e) { }
         });
-        backgroundStreams.current = []; // Clear the array
-        // IMPORTANT: Clear the UI logs in the parent when we stop a query manually
+        backgroundStreams.current = [];
         setDebugQuery("");
     };
+    // Simplified Navigation: Just stop queries and go
     const handleNavigation = (path, state) => {
-        stopQuery(); // 1. Kill all network requests and listeners IMMEDIATELY
-        navigate(path, { state }); // 2. Then switch pages
+        stopQuery();
+        navigate(path, { state });
     };
+    useEffect(() => {
+        stopQuery();
+        setProfileData(null);
+        setForums([]);
+        setFriends([]);
+        setActiveSection(null);
+        setIsLoading(false);
+    }, [subjectUri]);
     // Cleanup on unmount
     useEffect(() => {
         return () => stopQuery();
     }, []);
     if (!isAuthenticated || !user) {
-        return (_jsxs("div", { className: "card", style: { margin: '40px auto', maxWidth: '500px', textAlign: 'center' }, children: [_jsx("h2", { children: "Access Denied" }), _jsx("p", { children: "Please log in to view your profile." })] }));
+        return _jsx("div", { className: "card", children: _jsx("h2", { children: "Access Denied" }) });
     }
-    // --- Data Loaders ---
+    // If we are deep linking without state (edge case), we might not have a URI
+    if (!subjectUri) {
+        return _jsxs("div", { className: "card", children: [_jsx("h2", { children: "Error: Unknown Profile URI" }), _jsx("p", { children: "Please navigate from the friends list." })] });
+    }
+    // --- Data Loaders (Unchanged logic, just using subjectUri) ---
     const loadProfileInfo = async () => {
         stopQuery();
         setIsLoading(true);
         setActiveSection('info');
         setProfileData(null);
-        const infoQuery = QUERY_MY_INFO.replaceAll('TEMPLATE:ME', `<${user.username}>`);
+        const infoQuery = QUERY_MY_INFO.replaceAll('TEMPLATE:ME', `<${subjectUri}>`);
         setDebugQuery(infoQuery);
         try {
             const trackers = createTracker();
@@ -162,7 +188,7 @@ export const Profile = ({ setDebugQuery, logger, createTracker, onQueryStart, on
         setIsLoading(true);
         setActiveSection('forums');
         setForums([]);
-        const forumsQuery = QUERY_MY_FORUMS.replaceAll('TEMPLATE:ME', `<${user.username}>`);
+        const forumsQuery = QUERY_MY_FORUMS.replaceAll('TEMPLATE:ME', `<${subjectUri}>`);
         setDebugQuery(forumsQuery + "\n\n" + QUERY_MEMBER_COUNT);
         try {
             const trackers = createTracker();
@@ -191,11 +217,12 @@ export const Profile = ({ setDebugQuery, logger, createTracker, onQueryStart, on
                 };
                 setForums(prev => prev.some(f => f.uri === forumIri) ? prev : [...prev, newForum]);
                 setIsLoading(false);
-                // Background query for member count
                 const countQuery = QUERY_MEMBER_COUNT.replace('FORUM_IRI', forumIri);
                 executeTraversalQuery(countQuery, { traverse: false }, 2).then(countBs => {
                     backgroundStreams.current.push(countBs);
                     countBs.on('data', (countBinding) => {
+                        if (activeStream.current !== bs)
+                            return; // Guard
                         const count = parseInt(countBinding.get('count').value);
                         setForums(curr => curr.map(f => f.uri === forumIri ? { ...f, memberCount: count } : f));
                     });
@@ -221,7 +248,7 @@ export const Profile = ({ setDebugQuery, logger, createTracker, onQueryStart, on
         setIsLoading(true);
         setActiveSection('friends');
         setFriends([]);
-        const friendsQuery = QUERY_MY_FRIENDS.replaceAll('TEMPLATE:ME', `<${user.username}>`);
+        const friendsQuery = QUERY_MY_FRIENDS.replaceAll('TEMPLATE:ME', `<${subjectUri}>`);
         setDebugQuery(friendsQuery);
         try {
             const trackers = createTracker();
@@ -260,7 +287,6 @@ export const Profile = ({ setDebugQuery, logger, createTracker, onQueryStart, on
             setIsLoading(false);
         }
     };
-    // --- Main Render ---
-    return (_jsxs("div", { style: { maxWidth: '1000px', margin: '0 auto', padding: '40px 20px' }, children: [_jsxs("div", { className: "dashboard-header", children: [_jsxs("h1", { className: "dashboard-title", children: ["Welcome back, ", user.name, " \uD83D\uDC4B"] }), _jsx("div", { className: "user-badge", children: _jsxs("span", { children: ["ID: ", user.username] }) })] }), _jsxs("div", { className: "action-bar", children: [_jsx("button", { className: "btn-primary", onClick: loadProfileInfo, disabled: isLoading, children: isLoading && activeSection === 'info' ? 'Loading...' : '📄 My Profile' }), _jsx("button", { className: "btn-primary", onClick: loadFriends, disabled: isLoading, children: isLoading && activeSection === 'friends' ? 'Loading...' : '👥 Friends' }), _jsx("button", { className: "btn-primary", onClick: loadForums, disabled: isLoading, children: isLoading && activeSection === 'forums' ? 'Loading...' : '💬 Forums' })] }), _jsxs("div", { style: { minHeight: '300px' }, children: [isLoading && (_jsx("div", { className: "card content-placeholder", children: _jsxs("div", { className: "loading-pulse", children: [_jsx("div", { className: "spinner" }), _jsx("span", { children: "Traversing the decentralized web..." })] }) })), !isLoading && activeSection === 'info' && profileData && (_jsxs("div", { className: "profile-container", children: [_jsxs("div", { className: "card profile-column-left", children: [_jsxs("div", { className: "profile-header", children: [_jsx("div", { className: "avatar-circle", children: "\uD83D\uDC64" }), _jsxs("div", { children: [_jsxs("h2", { style: { margin: 0 }, children: [profileData.name, " ", profileData.lastName] }), _jsxs("p", { style: { color: '#666' }, children: ["\uD83D\uDCCD ", profileData.city] })] })] }), _jsxs("div", { className: "metadata-grid", children: [_jsxs("div", { children: [_jsx("div", { className: "meta-label", children: "Gender" }), _jsx("div", { className: "meta-value", children: profileData.gender })] }), _jsxs("div", { children: [_jsx("div", { className: "meta-label", children: "Birthday" }), _jsx("div", { className: "meta-value", children: profileData.birthday })] }), _jsxs("div", { children: [_jsx("div", { className: "meta-label", children: "Member Since" }), _jsx("div", { className: "meta-value", children: profileData.creationDate.toLocaleDateString() })] }), _jsxs("div", { children: [_jsx("div", { className: "meta-label", children: "IP Address" }), _jsx("div", { className: "meta-value", children: profileData.locationIP })] }), _jsxs("div", { style: { gridColumn: '1 / -1' }, children: [_jsx("div", { className: "meta-label", children: "Email" }), _jsx("div", { className: "meta-value", children: profileData.email })] })] })] }), _jsxs("div", { className: "card profile-column-right", children: [_jsx("h3", { children: "\u2764\uFE0F Interests" }), _jsx("div", { className: "scroll-area", children: profileData.interests.map((interest, i) => (_jsx("span", { className: "interest-chip", children: interest }, i))) })] })] })), !isLoading && activeSection === 'forums' && (_jsxs("div", { className: "card", children: [_jsxs("h2", { children: ["My Forums (", forums.length, ")"] }), _jsx("div", { className: "friends-grid", children: forums.map((forum) => (_jsxs("div", { className: "friend-card", children: [_jsx("div", { className: "friend-avatar-placeholder", style: { background: '#e0e7ff' }, children: "\uD83D\uDCAC" }), _jsx("h3", { className: "friend-name", children: forum.title }), _jsx("p", { className: "friend-city", children: forum.memberCount === -1 ? "⏳ Counting..." : `👥 ${forum.memberCount} Members` }), _jsx("button", { className: "btn-outline-sm", onClick: () => handleNavigation(`/forums/${forum.id}`, { forumUri: forum.uri }), children: "View Forum" })] }, forum.uri))) })] })), !isLoading && activeSection === 'friends' && (_jsxs("div", { className: "card", children: [_jsxs("h2", { children: ["Friends Network (", friends.length, ")"] }), _jsx("div", { className: "friends-grid", children: friends.map((friend) => (_jsxs("div", { className: "friend-card", children: [_jsx("div", { className: "friend-avatar-placeholder", children: friend.firstName.charAt(0) }), _jsxs("h3", { className: "friend-name", children: [friend.firstName, " ", friend.lastName] }), _jsxs("p", { className: "friend-city", children: ["\uD83D\uDCCD ", friend.city] }), _jsx("button", { className: "btn-outline-sm", onClick: () => handleNavigation(`/profiles/${friend.id}`, { personUri: friend.friendCard }), children: "View Profile" })] }, friend.friendCard))) })] }))] })] }));
+    return (_jsxs("div", { style: { maxWidth: '1000px', margin: '0 auto', padding: '40px 20px' }, children: [_jsxs("div", { className: "dashboard-header", children: [isOwnProfile ? (_jsxs("h1", { className: "dashboard-title", children: ["Welcome back, ", user.name] })) : (_jsxs("h1", { className: "dashboard-title", children: ["Viewing Profile ", profileData?.name || id] })), _jsx("div", { className: "user-badge", children: _jsxs("span", { children: ["Target: ", subjectUri] }) })] }), _jsxs("div", { className: "action-bar", children: [_jsx("button", { className: "btn-primary", onClick: loadProfileInfo, disabled: isLoading, children: isLoading && activeSection === 'info' ? 'Loading...' : '📄 Profile Info' }), _jsx("button", { className: "btn-primary", onClick: loadFriends, disabled: isLoading, children: isLoading && activeSection === 'friends' ? 'Loading...' : '👥 Friends' }), _jsx("button", { className: "btn-primary", onClick: loadForums, disabled: isLoading, children: isLoading && activeSection === 'forums' ? 'Loading...' : '💬 Forums' })] }), _jsxs("div", { style: { minHeight: '300px' }, children: [isLoading && (_jsx("div", { className: "card content-placeholder", children: _jsxs("div", { className: "loading-pulse", children: [_jsx("div", { className: "spinner" }), _jsx("span", { children: "Traversing the decentralized web..." })] }) })), !isLoading && activeSection === 'info' && profileData && (_jsxs("div", { className: "profile-container", children: [_jsxs("div", { className: "card profile-column-left", children: [_jsxs("div", { className: "profile-header", children: [_jsx("div", { className: "avatar-circle", children: "\uD83D\uDC64" }), _jsxs("div", { children: [_jsxs("h2", { style: { margin: 0 }, children: [profileData.name, " ", profileData.lastName] }), _jsxs("p", { style: { color: '#666' }, children: ["\uD83D\uDCCD ", profileData.city] })] })] }), _jsxs("div", { className: "metadata-grid", children: [_jsxs("div", { children: [_jsx("div", { className: "meta-label", children: "Gender" }), _jsx("div", { className: "meta-value", children: profileData.gender })] }), _jsxs("div", { children: [_jsx("div", { className: "meta-label", children: "Birthday" }), _jsx("div", { className: "meta-value", children: profileData.birthday })] }), _jsxs("div", { children: [_jsx("div", { className: "meta-label", children: "Member Since" }), _jsx("div", { className: "meta-value", children: profileData.creationDate.toLocaleDateString() })] }), _jsxs("div", { children: [_jsx("div", { className: "meta-label", children: "IP Address" }), _jsx("div", { className: "meta-value", children: profileData.locationIP })] }), _jsxs("div", { style: { gridColumn: '1 / -1' }, children: [_jsx("div", { className: "meta-label", children: "Email" }), _jsx("div", { className: "meta-value", children: profileData.email })] })] })] }), _jsxs("div", { className: "card profile-column-right", children: [_jsx("h3", { children: "\u2764\uFE0F Interests" }), _jsx("div", { className: "scroll-area", children: profileData.interests.map((interest, i) => (_jsx("span", { className: "interest-chip", children: interest }, i))) })] })] })), !isLoading && activeSection === 'forums' && (_jsxs("div", { className: "card", children: [_jsxs("h2", { children: [isOwnProfile ? "My Forums" : "User's Forums", " (", forums.length, ")"] }), _jsx("div", { className: "friends-grid", children: forums.map((forum) => (_jsxs("div", { className: "friend-card", children: [_jsx("div", { className: "friend-avatar-placeholder", style: { background: '#e0e7ff' }, children: "\uD83D\uDCAC" }), _jsx("h3", { className: "friend-name", children: forum.title }), _jsx("p", { className: "friend-city", children: forum.memberCount === -1 ? "⏳ Counting..." : `👥 ${forum.memberCount} Members` }), _jsx("button", { className: "btn-outline-sm", onClick: () => handleNavigation(`/forums/${encodeURIComponent(forum.uri)}`, { forumUri: forum.uri }), children: "View Forum" })] }, forum.uri))) })] })), !isLoading && activeSection === 'friends' && (_jsxs("div", { className: "card", children: [_jsxs("h2", { children: [isOwnProfile ? "My Friends" : "User's Friends", " (", friends.length, ")"] }), _jsx("div", { className: "friends-grid", children: friends.map((friend) => (_jsxs("div", { className: "friend-card", children: [_jsx("div", { className: "friend-avatar-placeholder", children: friend.firstName.charAt(0) }), _jsxs("h3", { className: "friend-name", children: [friend.firstName, " ", friend.lastName] }), _jsxs("p", { className: "friend-city", children: ["\uD83D\uDCCD ", friend.city] }), _jsx("button", { className: "btn-outline-sm", onClick: () => handleNavigation(`/profiles/${friend.id}`, { personUri: friend.friendCard }), children: "View Profile" })] }, friend.friendCard))) })] }))] })] }));
 };
-//# sourceMappingURL=MyProfile.js.map
+//# sourceMappingURL=Profile.js.map

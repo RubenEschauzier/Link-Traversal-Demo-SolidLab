@@ -17,4 +17,4 @@ interface ProfileProps {
 }
 export declare const Profile: React.FC<ProfileProps>;
 export {};
-//# sourceMappingURL=MyProfile.d.ts.map
+//# sourceMappingURL=Profile.d.ts.map

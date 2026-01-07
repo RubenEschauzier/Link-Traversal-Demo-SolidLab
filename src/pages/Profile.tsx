@@ -1,11 +1,19 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { executeTraversalQuery, ReactTraversalLogger } from '../api/queryEngineStub.js';
 import { useAuth } from '../context/AuthContext.js';
 import type { BindingsStream } from '@comunica/types';
 import '../index.css'; 
 import type { StatisticLinkDiscovery } from '@comunica/statistic-link-discovery';
 import type { StatisticLinkDereference } from '@comunica/statistic-link-dereference';
+
+// --- HELPER: SolidBench ID Reconstruction ---
+// This allows us to use clean URLs like /profiles/933
+const reconstructUriFromId = (shortId: string): string => {
+  // SolidBench IDs are zero-padded to 20 digits
+  const paddedId = shortId.padStart(20, '0');
+  return `https://solidbench.linkeddatafragments.org/pods/${paddedId}/profile/card#me`;
+};
 
 // --- Data Interfaces ---
 interface UserProfile {
@@ -103,13 +111,11 @@ const QUERY_MEMBER_COUNT = `
   }
 `;
 
-// --- Logic Helpers ---
 
 const processProfileBinding = (binding: any, prev: UserProfile | null): UserProfile => {
   const email = binding.get('email').value;
   const interest = binding.get('interestName').value;
 
-  // If we haven't started building the profile yet, create the base
   if (!prev) {
     return {
       name: binding.get('firstName').value,
@@ -123,21 +129,14 @@ const processProfileBinding = (binding: any, prev: UserProfile | null): UserProf
       interests: [interest]
     };
   }
-
-  // Accumulate unique interests and emails
-  const updatedInterests = prev.interests.includes(interest) 
-    ? prev.interests 
-    : [...prev.interests, interest];
   
-  const updatedEmails = prev.email.includes(email) 
-    ? prev.email 
-    : `${prev.email}, ${email}`;
+  const updatedInterests = prev.interests.includes(interest) ? prev.interests : [...prev.interests, interest];
+  const updatedEmails = prev.email.includes(email) ? prev.email : `${prev.email}, ${email}`;
 
   return { ...prev, interests: updatedInterests, email: updatedEmails };
 };
 
-export const Profile: React.FC<ProfileProps> = (  
-  {
+export const Profile: React.FC<ProfileProps> = ({
     setDebugQuery, 
     logger,
     createTracker,
@@ -145,12 +144,30 @@ export const Profile: React.FC<ProfileProps> = (
     onQueryEnd,
     onResultArrived, 
     registerQuery,
-  }
-) => {
+}) => {
   const activeStream = useRef<BindingsStream | null>(null);
   const backgroundStreams = useRef<BindingsStream[]>([]);
+  
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const { id } = useParams(); // Gets "933" from URL
+
+  // 1. CALCULATE SUBJECT URI
+  const subjectUri = useMemo(() => {
+    // Priority 1: Navigation State (Fastest - passed from previous click)
+    if (location.state?.personUri){
+      return location.state.personUri
+    }
+    // Priority 2: Reconstruct from ID (Handles Refresh / Deep Link)
+    if (id) {
+      return reconstructUriFromId(id);
+    }
+    // Priority 3: Logged in User (Default /profile route)
+    return user?.username;
+  }, [id, location.state, user]);
+
+  const isOwnProfile = subjectUri === user?.username;
 
   const [profileData, setProfileData] = useState<UserProfile | null>(null);
   const [forums, setForums] = useState<Forum[]>([]);
@@ -164,35 +181,42 @@ export const Profile: React.FC<ProfileProps> = (
       activeStream.current = null;
     }
     backgroundStreams.current.forEach(stream => {
-      try {
-        stream.destroy();
-      } catch (e) {
-        // Ignore errors if stream is already closed
-      }
+      try { stream.destroy(); } catch (e) {}
     });
-    backgroundStreams.current = []; // Clear the array
-    // IMPORTANT: Clear the UI logs in the parent when we stop a query manually
+    backgroundStreams.current = [];
     setDebugQuery(""); 
   };
+
+  // Simplified Navigation: Just stop queries and go
   const handleNavigation = (path: string, state: any) => {
-    stopQuery(); // 1. Kill all network requests and listeners IMMEDIATELY
-    navigate(path, { state }); // 2. Then switch pages
+    stopQuery();
+    navigate(path, { state });
   };
+
+  useEffect(() => {
+    stopQuery();
+    setProfileData(null);
+    setForums([]);
+    setFriends([]);
+    setActiveSection(null);
+    setIsLoading(false);
+  }, [subjectUri]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => stopQuery();
   }, []);
 
   if (!isAuthenticated || !user) {
-    return (
-      <div className="card" style={{ margin: '40px auto', maxWidth: '500px', textAlign: 'center' }}>
-        <h2>Access Denied</h2>
-        <p>Please log in to view your profile.</p>
-      </div>
-    );
+    return <div className="card"><h2>Access Denied</h2></div>;
   }
 
-  // --- Data Loaders ---
+  // If we are deep linking without state (edge case), we might not have a URI
+  if (!subjectUri) {
+    return <div className="card"><h2>Error: Unknown Profile URI</h2><p>Please navigate from the friends list.</p></div>;
+  }
+
+  // --- Data Loaders (Unchanged logic, just using subjectUri) ---
 
   const loadProfileInfo = async () => {
     stopQuery();
@@ -200,7 +224,7 @@ export const Profile: React.FC<ProfileProps> = (
     setActiveSection('info');
     setProfileData(null);
 
-    const infoQuery = QUERY_MY_INFO.replaceAll('TEMPLATE:ME', `<${user.username}>`);
+    const infoQuery = QUERY_MY_INFO.replaceAll('TEMPLATE:ME', `<${subjectUri}>`);
     setDebugQuery(infoQuery);
     
     try {
@@ -241,7 +265,7 @@ export const Profile: React.FC<ProfileProps> = (
     setActiveSection('forums');
     setForums([]);
 
-    const forumsQuery = QUERY_MY_FORUMS.replaceAll('TEMPLATE:ME', `<${user.username}>`);
+    const forumsQuery = QUERY_MY_FORUMS.replaceAll('TEMPLATE:ME', `<${subjectUri}>`);
     setDebugQuery(forumsQuery + "\n\n" + QUERY_MEMBER_COUNT);
 
     try {
@@ -273,16 +297,17 @@ export const Profile: React.FC<ProfileProps> = (
 
         setForums(prev => prev.some(f => f.uri === forumIri) ? prev : [...prev, newForum]);
         setIsLoading(false);
-        // Background query for member count
+        
         const countQuery = QUERY_MEMBER_COUNT.replace('FORUM_IRI', forumIri);
         executeTraversalQuery(countQuery, { traverse: false }, 2).then(countBs => {
           backgroundStreams.current.push(countBs);
           countBs.on('data', (countBinding: any) => {
+            if (activeStream.current !== bs) return; // Guard
             const count = parseInt(countBinding.get('count').value);
             setForums(curr => curr.map(f => f.uri === forumIri ? { ...f, memberCount: count } : f));
           });
           countBs.on('end', () => {
-            backgroundStreams.current = backgroundStreams.current.filter(s => s !== countBs);
+             backgroundStreams.current = backgroundStreams.current.filter(s => s !== countBs);
           });
         });
       });
@@ -304,7 +329,7 @@ export const Profile: React.FC<ProfileProps> = (
     setActiveSection('friends');
     setFriends([]);
 
-    const friendsQuery = QUERY_MY_FRIENDS.replaceAll('TEMPLATE:ME', `<${user.username}>`);
+    const friendsQuery = QUERY_MY_FRIENDS.replaceAll('TEMPLATE:ME', `<${subjectUri}>`);
     setDebugQuery(friendsQuery);
 
     try {
@@ -346,18 +371,28 @@ export const Profile: React.FC<ProfileProps> = (
     }
   };
 
-  // --- Main Render ---
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '40px 20px' }}>
       
       <div className="dashboard-header">
-        <h1 className="dashboard-title">Welcome back, {user.name} 👋</h1>
-        <div className="user-badge"><span>ID: {user.username}</span></div>
+        {/* Changed header to reflect if looking at self or others */}
+        {isOwnProfile ? (
+          <h1 className="dashboard-title">Welcome back, {user.name}</h1>
+        ) : (
+          <h1 className="dashboard-title">
+             Viewing Profile {profileData?.name || id}
+          </h1>
+        )}
+        
+        <div className="user-badge">
+           <span>Target: {subjectUri}</span>
+        </div>
       </div>
 
       <div className="action-bar">
+        {/* Buttons now load data for the subjectUri */}
         <button className="btn-primary" onClick={loadProfileInfo} disabled={isLoading}>
-          {isLoading && activeSection === 'info' ? 'Loading...' : '📄 My Profile'}
+          {isLoading && activeSection === 'info' ? 'Loading...' : '📄 Profile Info'}
         </button>
         <button className="btn-primary" onClick={loadFriends} disabled={isLoading}>
           {isLoading && activeSection === 'friends' ? 'Loading...' : '👥 Friends'}
@@ -368,8 +403,6 @@ export const Profile: React.FC<ProfileProps> = (
       </div>
 
       <div style={{ minHeight: '300px' }}>
-        
-        {/* Loading Indicator */}
         {isLoading && (
           <div className="card content-placeholder">
             <div className="loading-pulse">
@@ -382,6 +415,7 @@ export const Profile: React.FC<ProfileProps> = (
         {/* Info Section */}
         {!isLoading && activeSection === 'info' && profileData && (
           <div className="profile-container">
+            {/* Same Profile UI as before */}
             <div className="card profile-column-left">
               <div className="profile-header">
                 <div className="avatar-circle">👤</div>
@@ -413,7 +447,7 @@ export const Profile: React.FC<ProfileProps> = (
         {/* Forums Section */}
         {!isLoading && activeSection === 'forums' && (
           <div className="card">
-            <h2>My Forums ({forums.length})</h2>
+            <h2>{isOwnProfile ? "My Forums" : "User's Forums"} ({forums.length})</h2>
             <div className="friends-grid">
               {forums.map((forum) => (
                 <div key={forum.uri} className="friend-card">
@@ -422,9 +456,13 @@ export const Profile: React.FC<ProfileProps> = (
                   <p className="friend-city">
                     {forum.memberCount === -1 ? "⏳ Counting..." : `👥 ${forum.memberCount} Members`}
                   </p>
+                  
+                  {/* FIX 1: Navigate to /forums/FORUM_ID */}
                   <button className="btn-outline-sm"
-                    onClick={() => handleNavigation(`/forums/${forum.id}`, { forumUri: forum.uri })}
-                  >
+                    onClick={() => handleNavigation(
+                      `/forums/${encodeURIComponent(forum.uri)}`, 
+                      { forumUri: forum.uri }
+                    )}                  >
                     View Forum
                   </button>    
                 </div>
@@ -436,13 +474,15 @@ export const Profile: React.FC<ProfileProps> = (
         {/* Friends Section */}
         {!isLoading && activeSection === 'friends' && (
           <div className="card">
-            <h2>Friends Network ({friends.length})</h2>
+             <h2>{isOwnProfile ? "My Friends" : "User's Friends"} ({friends.length})</h2>
             <div className="friends-grid">
               {friends.map((friend) => (
                 <div key={friend.friendCard} className="friend-card">
                   <div className="friend-avatar-placeholder">{friend.firstName.charAt(0)}</div>
                   <h3 className="friend-name">{friend.firstName} {friend.lastName}</h3>
                   <p className="friend-city">📍 {friend.city}</p>
+                  
+                  {/* FIX 2: Navigate to /profiles/FRIEND_ID */}
                   <button className="btn-outline-sm"
                     onClick={() => handleNavigation(`/profiles/${friend.id}`, { personUri: friend.friendCard })}
                    >
@@ -456,5 +496,3 @@ export const Profile: React.FC<ProfileProps> = (
     </div>
   );
 };
-
-

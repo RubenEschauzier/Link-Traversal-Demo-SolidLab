@@ -20,7 +20,7 @@ Traversed topologies are capped to around a 1000 nodes, as it would otherwise sl
 ```
 
 ## TODO:
-- [ ] Going directly towards a URL with details without first coming from overview page makes it error as the url does not contain the correct
+- [x] Going directly towards a URL with details without first coming from overview page makes it error as the url does not contain the correct
       starting point for link traversal query
 - [x] Logger filter does not work properly it 1. can't filter out "determined first entry...." logs for binding join. 
 Also that log doesn't show the entry properly. 2. It doesn't filter out things that should be filtered out. Probably something to do with async.
@@ -32,7 +32,7 @@ Also that log doesn't show the entry properly. 2. It doesn't filter out things t
 - [x] Rename nodes / edges
 - [x] Allow user to stop queries
 - [x] Fix performance issue clicking from Forums "Group for George_Clooney in Narathiwat" 
-- [ ] Add buttons to click through flexibally from any profile page
+- [x] Add buttons to click through flexibally from any profile page
 
 ## TODO for demo:
 - [ ] Allow different link traversal configurations (standard, adaptive, shape index, derived resources?) for possible demo at conference

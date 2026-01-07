@@ -6,7 +6,7 @@
   "author": "Ruben Eschauzier",
   "type": "module",
   "main": "index.js",
-  "homepage": "https://RubenEschauzier.github.io/Link-Traversal-Demo-SolidLab",  
+  "homepage": "https://RubenEschauzier.github.io/Link-Traversal-Demo-SolidLab",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -24,6 +24,7 @@
     "@rubeneschauzier/query-sparql-link-traversal-solid-limit-depth-3": "^0.7.0",
     "@rubeneschauzier/statistic-traversal-topology": "^0.7.0",
     "cytoscape": "^3.33.1",
+    "lz-string": "^1.5.0",
     "react": "^19.2.3",
     "react-cytoscapejs": "^2.0.0",
     "react-router-dom": "^7.10.1"

@@ -2,15 +2,14 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { HashRouter as Router, Routes, Route, Link, useNavigate } from 'react-router-dom';
 import { StatisticTraversalTopology } from '@rubeneschauzier/statistic-traversal-topology';
 
-import { Profile } from './src/pages/MyProfile.js';
 import { ForumDetail } from './src/pages/ForumDetail.js';
-import { UserProfileDetail } from './src/pages/ProfileDetail.js';
 import QueryDebugger from './src/components/QueryDebugger.js';
 import { AuthProvider, useAuth } from './src/context/AuthContext.js';
 import { ReactTraversalLogger, type LogEntry } from './src/api/queryEngineStub.js';
 import { StatisticLinkDiscovery } from '@comunica/statistic-link-discovery';
 import { StatisticLinkDereference } from '@comunica/statistic-link-dereference';
 import { UpdateProcessor } from './src/api/UpdateProcessor.js';
+import { Profile } from './src/pages/Profile.js';
 
 interface SolidUser {
   id: string;
@@ -466,7 +465,7 @@ const App: React.FC = () => {
                 />} 
                 />
               <Route path="/profiles/:id" element={
-                <UserProfileDetail 
+                <Profile 
                 setDebugQuery={handleSetQuery} 
                 logger={isTrackingEnabled ? traversalLogger : undefined}
                 createTracker={createTopologyTracker}
